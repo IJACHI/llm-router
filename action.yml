@@ -1,0 +1,101 @@
+name: 'ijachi-llm-router'
+description: 'Route any prompt to the best LLM automatically — minimize cost, maximize quality in GitHub Actions.'
+author: 'ijachi'
+branding:
+  icon: 'zap'
+  color: 'cyan'
+
+inputs:
+  prompt:
+    description: 'The prompt string to route to the best model'
+    required: true
+  priority:
+    description: 'Routing priority: cost | speed | quality | balanced'
+    required: false
+    default: 'balanced'
+  max_cost:
+    description: 'Max USD cost cap per call'
+    required: false
+  openai_api_key:
+    description: 'OpenAI API key (optional if using Anthropic or Ollama)'
+    required: false
+  anthropic_api_key:
+    description: 'Anthropic API key (optional if using OpenAI or Ollama)'
+    required: false
+  pro_license_key:
+    description: 'Pro license key (IJPRO-...)'
+    required: false
+
+outputs:
+  response:
+    description: 'Generated text response from the optimal LLM'
+    value: ${{ steps.router.outputs.response }}
+  model:
+    description: 'Name of the selected model (e.g. gpt-4o-mini)'
+    value: ${{ steps.router.outputs.model }}
+  provider:
+    description: 'Provider used (e.g. openai, anthropic, local)'
+    value: ${{ steps.router.outputs.provider }}
+  cost_usd:
+    description: 'Cost of the request in USD'
+    value: ${{ steps.router.outputs.cost_usd }}
+  latency_sec:
+    description: 'Latency of the request in seconds'
+    value: ${{ steps.router.outputs.latency_sec }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install ijachi-llm-router
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install ijachi-llm-router
+
+    - name: Execute Prompt Routing
+      id: router
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        IJACHI_ROUTER_LICENSE_KEY: ${{ inputs.pro_license_key }}
+        PROMPT_INPUT: ${{ inputs.prompt }}
+        PRIORITY_INPUT: ${{ inputs.priority }}
+        MAX_COST_INPUT: ${{ inputs.max_cost }}
+      run: |
+        python - << 'EOF'
+        import os
+        import sys
+        from ijachi_router import Router
+
+        prompt = os.environ.get("PROMPT_INPUT", "")
+        priority = os.environ.get("PRIORITY_INPUT", "balanced")
+        max_cost_raw = os.environ.get("MAX_COST_INPUT")
+        max_cost = float(max_cost_raw) if max_cost_raw else None
+
+        router = Router()
+        router.config.priority = priority
+        if max_cost is not None:
+            router.config.max_cost_per_call = max_cost
+
+        result = router.route(prompt)
+
+        # Append outputs to GitHub Actions step output file
+        github_output = os.environ.get("GITHUB_OUTPUT")
+        if github_output:
+            with open(github_output, "a", encoding="utf-8") as f:
+                # Escape multiline response for GitHub Actions
+                escaped_text = result.text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D")
+                f.write(f"response={escaped_text}\n")
+                f.write(f"model={result.model}\n")
+                f.write(f"provider={result.provider}\n")
+                f.write(f"cost_usd={result.cost_usd:.6f}\n")
+                f.write(f"latency_sec={result.latency_s:.2f}\n")
+
+        print(f"Routed to model={result.model} cost=${result.cost_usd:.4f} latency={result.latency_s:.2f}s")
+        EOF

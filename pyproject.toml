@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ijachi-llm-router"
+version = "0.1.0"
+description = "Route any prompt to the best LLM automatically — minimize cost, maximize quality."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ijachi" }]
+keywords = ["llm", "router", "openai", "anthropic", "ollama", "cost-optimization", "ijachi"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "scikit-learn>=1.3",
+    "pyyaml>=6.0",
+    "requests>=2.28",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.25"]
+openai    = ["openai>=1.0"]
+all       = ["anthropic>=0.25", "openai>=1.0"]
+dev       = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "anthropic>=0.25",
+    "openai>=1.0",
+]
+
+[project.scripts]
+ijachi-router = "cli:main"
+ijr = "cli:main"
+
+[project.urls]
+Homepage   = "https://github.com/ijachi/ijachi-llm-router"
+Repository = "https://github.com/ijachi/ijachi-llm-router"
+Issues     = "https://github.com/ijachi/ijachi-llm-router/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ijachi_router*"]
+
+[tool.setuptools]
+py-modules = ["cli"]
+
+[tool.setuptools.package-data]
+"ijachi_router" = ["../models.yaml", "../data/train_data.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts   = "-v"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

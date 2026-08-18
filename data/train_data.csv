@@ -1,0 +1,101 @@
+prompt,category
+Write a Python function to reverse a linked list,code
+Implement binary search in JavaScript,code
+Debug this SQL query that returns duplicate rows,code
+How do I write a recursive Fibonacci in Haskell?,code
+Explain how async/await works in Python,code
+Write a bash script to batch-rename files,code
+Generate a regex to validate email addresses,code
+What's the difference between a list and a tuple in Python?,code
+Create a REST API endpoint in FastAPI that returns JSON,code
+Fix this TypeScript type error: Property 'x' does not exist on type 'never',code
+How do I center a div in CSS?,code
+Refactor this class to use dependency injection,code
+Write unit tests for a shopping cart module,code
+Convert this callback-based code to use Promises,code
+Build a simple CLI tool in Go that reads stdin,code
+Prove that the square root of 2 is irrational,math
+Solve this integral: ∫ x² e^x dx,math
+What is the derivative of ln(sin(x))?,math
+How many prime numbers exist below 1000?,math
+Simplify the expression (a+b)³ − 3ab(a+b),math
+Solve the system of equations: 2x+3y=7, x−y=1,math
+What is Bayes' theorem and when should I use it?,math
+Explain the Central Limit Theorem with an example,math
+Calculate the eigenvalues of [[1,2],[3,4]],math
+What is the P vs NP problem?,math
+Find the area under the curve y=x² from 0 to 3,math
+Derive the quadratic formula from ax²+bx+c=0,math
+Show that 1+2+3+…+n = n(n+1)/2,math
+What is the Monty Hall problem and what's the correct answer?,math
+Solve: if 3^x = 81, what is x?,math
+Write a short poem about autumn leaves,creative
+Tell me a story about a lighthouse keeper who discovers a mystery,creative
+Compose a haiku about artificial intelligence,creative
+Give me five creative names for a coffee shop,creative
+Write a product description for a self-cleaning water bottle,creative
+Create a fantasy world where music has physical properties,creative
+Write a limerick about a programmer debugging at 3am,creative
+Compose an opening paragraph for a thriller novel set in Antarctica,creative
+Give me 10 pun-based business names for a bakery,creative
+Write a short children's story about a shy dragon,creative
+Create dialogue between two robots debating free will,creative
+Write a marketing tagline for an AI-powered toothbrush,creative
+Describe a futuristic city in sensory detail,creative
+Write a one-paragraph cover letter for a senior engineer role,creative
+Compose a toast for a retirement party for a librarian,creative
+Summarize the plot of Romeo and Juliet in three sentences,summarization
+Give me a TL;DR of the French Revolution,summarization
+Condense this meeting transcript into bullet-point action items,summarization
+Summarize the key findings of a research paper on climate change,summarization
+What are the main points of the US Bill of Rights?,summarization
+Give me a one-paragraph summary of machine learning,summarization
+Summarize the differences between REST and GraphQL APIs,summarization
+List the key takeaways from a podcast about productivity,summarization
+What are the main arguments for and against universal basic income?,summarization
+Condense a 10-page legal contract into plain-English bullet points,summarization
+Summarize the history of the internet in under 200 words,summarization
+What were the causes and effects of World War I?,summarization
+Distill the core ideas from "Thinking Fast and Slow",summarization
+Summarize this news article about electric vehicles,summarization
+What are the key differences between Docker and Kubernetes?,summarization
+What is the capital of Japan?,simple-qa
+Who invented the telephone?,simple-qa
+What does HTTP stand for?,simple-qa
+How many bytes are in a megabyte?,simple-qa
+What year did the Berlin Wall fall?,simple-qa
+What is the chemical formula for water?,simple-qa
+Who wrote Hamlet?,simple-qa
+What is the largest planet in our solar system?,simple-qa
+What programming language was created by Guido van Rossum?,simple-qa
+How many sides does a hexagon have?,simple-qa
+What does API stand for?,simple-qa
+What is the boiling point of water in Celsius?,simple-qa
+Who painted the Mona Lisa?,simple-qa
+What does CSS stand for?,simple-qa
+What is the speed of light?,simple-qa
+Analyze the ethical implications of AI replacing white-collar jobs,reasoning
+Compare the trade-offs between microservices and monolithic architecture,reasoning
+Should I use SQL or NoSQL for a social network with 10M users?,reasoning
+What are the long-term consequences of deforestation on global economies?,reasoning
+Evaluate the pros and cons of nuclear energy versus solar power,reasoning
+How would you design a distributed rate limiter at scale?,reasoning
+Assess the geopolitical risks of supply chain dependence on a single country,reasoning
+What are the second-order effects of a universal basic income?,reasoning
+Is it better to optimize for latency or throughput in a trading system?,reasoning
+Reason through the prisoner's dilemma from a game-theory perspective,reasoning
+What would happen to global food supply if pollinators went extinct?,reasoning
+Should a startup build vs buy its authentication system?,reasoning
+Analyze the risks of a company relying solely on one cloud provider,reasoning
+What are the strategic implications of open-sourcing your core product?,reasoning
+How do you evaluate a job offer with lower salary but equity upside?,reasoning
+Summarize this 50-page annual report and highlight the risks,long-context
+Extract all action items from this 3-hour meeting transcript,long-context
+Analyze this entire codebase and suggest architectural improvements,long-context
+Read this legal document and identify any unfavorable clauses,long-context
+Cross-reference these two research papers and find contradictions,long-context
+Summarize the themes across all 12 chapters of this book,long-context
+Given this 200-page product spec, what features are missing?,long-context
+Process this dataset of 5000 customer reviews and categorize sentiment,long-context
+Review this entire pull request with 30 changed files and assess quality,long-context
+Analyze this 6-month email thread and summarize the key decisions made,long-context

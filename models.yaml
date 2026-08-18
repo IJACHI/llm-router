@@ -1,0 +1,341 @@
+# ijachi-llm-router model catalog
+# ────────────────────────────────────────────────────────────────────────────
+# Preconfigured matrix of 20 major LLM service providers & models (as of August 2026).
+# Edit this file to customize models, pricing, or tags. No code changes needed.
+#
+# Fields:
+#   provider       : matching REGISTRY key (anthropic | openai | deepseek | gemini | groq | mistral | moonshot | qwen | perplexity | cohere | together | openrouter | cerebras | sambanova | fireworks | huggingface | custom | azure | bedrock | local)
+#   model_id       : exact string passed to the provider API
+#   tags           : list of task categories this model excels at
+#   input_per_1k   : cost in USD per 1 000 input tokens
+#   output_per_1k  : cost in USD per 1 000 output tokens
+#   max_context    : context window in tokens
+#   speed_tier     : fast | medium | slow
+#
+# Valid tags:
+#   code | math | creative | summarization | reasoning | long-context | simple-qa
+
+models:
+  # ── Cerebras Cloud (Ultra-Fast Hardware >1,800 tok/s) ────────────────────────
+  - provider: cerebras
+    model_id: llama3.1-70b
+    tags: [code, reasoning, summarization, simple-qa]
+    input_per_1k: 0.0006
+    output_per_1k: 0.0006
+    max_context: 128000
+    speed_tier: fast
+
+  - provider: cerebras
+    model_id: llama3.1-8b
+    tags: [simple-qa, summarization]
+    input_per_1k: 0.0001
+    output_per_1k: 0.0001
+    max_context: 128000
+    speed_tier: fast
+
+  # ── SambaNova Systems (LPU Accelerator) ────────────────────────────────────
+  - provider: sambanova
+    model_id: Meta-Llama-3.1-405B-Instruct
+    tags: [reasoning, math, code, long-context]
+    input_per_1k: 0.005
+    output_per_1k: 0.005
+    max_context: 128000
+    speed_tier: medium
+
+  - provider: sambanova
+    model_id: Meta-Llama-3.1-70B-Instruct
+    tags: [code, reasoning, simple-qa]
+    input_per_1k: 0.0006
+    output_per_1k: 0.0006
+    max_context: 128000
+    speed_tier: fast
+
+  # ── Fireworks AI ────────────────────────────────────────────────────────────
+  - provider: fireworks
+    model_id: accounts/fireworks/models/llama-v3p1-70b-instruct
+    tags: [code, reasoning, simple-qa]
+    input_per_1k: 0.0009
+    output_per_1k: 0.0009
+    max_context: 128000
+    speed_tier: fast
+
+  # ── AWS Bedrock (Enterprise) ───────────────────────────────────────────────
+  - provider: bedrock
+    model_id: anthropic.claude-3-5-sonnet-v2:0
+    tags: [code, reasoning, math, long-context]
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    max_context: 200000
+    speed_tier: medium
+
+  - provider: bedrock
+    model_id: meta.llama3-3-70b-instruct-v1:0
+    tags: [code, reasoning, simple-qa]
+    input_per_1k: 0.00072
+    output_per_1k: 0.00072
+    max_context: 128000
+    speed_tier: fast
+
+  # ── Azure OpenAI (Enterprise) ───────────────────────────────────────────────
+  - provider: azure
+    model_id: gpt-4o
+    tags: [code, reasoning, math, long-context]
+    input_per_1k: 0.0025
+    output_per_1k: 0.01
+    max_context: 128000
+    speed_tier: medium
+
+  - provider: azure
+    model_id: gpt-4o-mini
+    tags: [simple-qa, summarization, creative]
+    input_per_1k: 0.00015
+    output_per_1k: 0.0006
+    max_context: 128000
+    speed_tier: fast
+
+  # ── Hugging Face Inference API ─────────────────────────────────────────────
+  - provider: huggingface
+    model_id: mistralai/Mistral-7B-Instruct-v0.3
+    tags: [simple-qa, summarization]
+    input_per_1k: 0.0002
+    output_per_1k: 0.0002
+    max_context: 32000
+    speed_tier: fast
+
+  # ── Custom / vLLM / LM Studio Server ───────────────────────────────────────
+  - provider: custom
+    model_id: local-model
+    tags: [simple-qa, code, reasoning]
+    input_per_1k: 0.0
+    output_per_1k: 0.0
+    max_context: 32768
+    speed_tier: fast
+
+  # ── DeepSeek Cloud ─────────────────────────────────────────────────────────
+  - provider: deepseek
+    model_id: deepseek-chat
+    tags: [simple-qa, code, summarization, creative, reasoning]
+    input_per_1k: 0.00014
+    output_per_1k: 0.00028
+    max_context: 64000
+    speed_tier: fast
+
+  - provider: deepseek
+    model_id: deepseek-reasoner
+    tags: [reasoning, math, code]
+    input_per_1k: 0.00055
+    output_per_1k: 0.00219
+    max_context: 64000
+    speed_tier: medium
+
+  # ── Kimi / Moonshot AI ──────────────────────────────────────────────────────
+  - provider: moonshot
+    model_id: kimi-latest
+    tags: [code, reasoning, long-context, simple-qa]
+    input_per_1k: 0.0012
+    output_per_1k: 0.0012
+    max_context: 200000
+    speed_tier: fast
+
+  - provider: moonshot
+    model_id: moonshot-v1-32k
+    tags: [simple-qa, summarization, long-context]
+    input_per_1k: 0.0012
+    output_per_1k: 0.0012
+    max_context: 32000
+    speed_tier: fast
+
+  # ── Qwen / Alibaba DashScope ───────────────────────────────────────────────
+  - provider: qwen
+    model_id: qwen-max
+    tags: [code, reasoning, math, long-context]
+    input_per_1k: 0.0028
+    output_per_1k: 0.0084
+    max_context: 32768
+    speed_tier: medium
+
+  - provider: qwen
+    model_id: qwen-plus
+    tags: [simple-qa, summarization, creative]
+    input_per_1k: 0.00056
+    output_per_1k: 0.00168
+    max_context: 131072
+    speed_tier: fast
+
+  - provider: qwen
+    model_id: qwen2.5-coder-32b-instruct
+    tags: [code, math]
+    input_per_1k: 0.0008
+    output_per_1k: 0.0008
+    max_context: 32768
+    speed_tier: fast
+
+  # ── Google Gemini ──────────────────────────────────────────────────────────
+  - provider: gemini
+    model_id: gemini-2.5-flash
+    tags: [simple-qa, summarization, creative, long-context]
+    input_per_1k: 0.000075
+    output_per_1k: 0.0003
+    max_context: 1000000
+    speed_tier: fast
+
+  - provider: gemini
+    model_id: gemini-2.5-pro
+    tags: [code, reasoning, math, long-context, creative]
+    input_per_1k: 0.00125
+    output_per_1k: 0.005
+    max_context: 2000000
+    speed_tier: medium
+
+  # ── Groq LPU (Ultra-Fast Inference) ─────────────────────────────────────────
+  - provider: groq
+    model_id: llama-3.3-70b-versatile
+    tags: [code, reasoning, summarization, simple-qa]
+    input_per_1k: 0.00059
+    output_per_1k: 0.00079
+    max_context: 128000
+    speed_tier: fast
+
+  - provider: groq
+    model_id: deepseek-r1-distill-llama-70b
+    tags: [reasoning, math, code]
+    input_per_1k: 0.00075
+    output_per_1k: 0.00099
+    max_context: 128000
+    speed_tier: fast
+
+  # ── OpenAI ─────────────────────────────────────────────────────────────────
+  - provider: openai
+    model_id: gpt-4o-mini
+    tags: [simple-qa, summarization, creative]
+    input_per_1k: 0.00015
+    output_per_1k: 0.0006
+    max_context: 128000
+    speed_tier: fast
+
+  - provider: openai
+    model_id: gpt-4o
+    tags: [code, reasoning, math, long-context]
+    input_per_1k: 0.0025
+    output_per_1k: 0.01
+    max_context: 128000
+    speed_tier: medium
+
+  - provider: openai
+    model_id: o3-mini
+    tags: [code, reasoning, math]
+    input_per_1k: 0.0011
+    output_per_1k: 0.0044
+    max_context: 200000
+    speed_tier: fast
+
+  - provider: openai
+    model_id: o1
+    tags: [reasoning, math, code]
+    input_per_1k: 0.015
+    output_per_1k: 0.06
+    max_context: 200000
+    speed_tier: slow
+
+  # ── Anthropic ──────────────────────────────────────────────────────────────
+  - provider: anthropic
+    model_id: claude-3-7-sonnet
+    tags: [code, reasoning, math, long-context, creative]
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    max_context: 200000
+    speed_tier: fast
+
+  - provider: anthropic
+    model_id: claude-haiku-4-5
+    tags: [simple-qa, summarization, creative]
+    input_per_1k: 0.00025
+    output_per_1k: 0.00125
+    max_context: 200000
+    speed_tier: fast
+
+  - provider: anthropic
+    model_id: claude-sonnet-4-5
+    tags: [code, reasoning, math, long-context]
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    max_context: 200000
+    speed_tier: medium
+
+  # ── Perplexity AI ──────────────────────────────────────────────────────────
+  - provider: perplexity
+    model_id: sonar-pro
+    tags: [simple-qa, reasoning, summarization]
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    max_context: 200000
+    speed_tier: fast
+
+  # ── Cohere AI ──────────────────────────────────────────────────────────────
+  - provider: cohere
+    model_id: command-r-plus
+    tags: [reasoning, long-context, summarization]
+    input_per_1k: 0.0025
+    output_per_1k: 0.01
+    max_context: 128000
+    speed_tier: medium
+
+  # ── Mistral AI ─────────────────────────────────────────────────────────────
+  - provider: mistral
+    model_id: mistral-small-latest
+    tags: [simple-qa, summarization, creative]
+    input_per_1k: 0.0002
+    output_per_1k: 0.0006
+    max_context: 32000
+    speed_tier: fast
+
+  - provider: mistral
+    model_id: codestral-latest
+    tags: [code, reasoning]
+    input_per_1k: 0.0003
+    output_per_1k: 0.0009
+    max_context: 32000
+    speed_tier: fast
+
+  # ── Together AI ────────────────────────────────────────────────────────────
+  - provider: together
+    model_id: meta-llama/Llama-3.3-70B-Instruct-Turbo
+    tags: [code, reasoning, simple-qa]
+    input_per_1k: 0.00088
+    output_per_1k: 0.00088
+    max_context: 131072
+    speed_tier: fast
+
+  # ── OpenRouter ─────────────────────────────────────────────────────────────
+  - provider: openrouter
+    model_id: openrouter/auto
+    tags: [simple-qa, summarization, reasoning]
+    input_per_1k: 0.001
+    output_per_1k: 0.002
+    max_context: 128000
+    speed_tier: medium
+
+  # ── Local / Ollama ─────────────────────────────────────────────────────────
+  - provider: local
+    model_id: llama3.2:3b
+    tags: [simple-qa, summarization]
+    input_per_1k: 0.0
+    output_per_1k: 0.0
+    max_context: 131072
+    speed_tier: fast
+
+  - provider: local
+    model_id: llama3.1:8b
+    tags: [code, creative, summarization, simple-qa]
+    input_per_1k: 0.0
+    output_per_1k: 0.0
+    max_context: 131072
+    speed_tier: medium
+
+  - provider: local
+    model_id: deepseek-r1:7b
+    tags: [reasoning, math, code]
+    input_per_1k: 0.0
+    output_per_1k: 0.0
+    max_context: 65536
+    speed_tier: slow

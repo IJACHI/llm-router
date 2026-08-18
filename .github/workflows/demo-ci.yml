@@ -1,0 +1,32 @@
+name: ijachi-llm-router CI Demo
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  route-prompt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Route Prompt with ijachi-llm-router
+        id: llm
+        uses: ./
+        with:
+          prompt: "Write a high-level summary of the code changes in this commit"
+          priority: "cost"
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Display Routing Results
+        run: |
+          echo "Generated Output:"
+          echo "${{ steps.llm.outputs.response }}"
+          echo "Model Used: ${{ steps.llm.outputs.model }}"
+          echo "Provider: ${{ steps.llm.outputs.provider }}"
+          echo "Cost: $${{ steps.llm.outputs.cost_usd }}"
+          echo "Latency: ${{ steps.llm.outputs.latency_sec }}s"

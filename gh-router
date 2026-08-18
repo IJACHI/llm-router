@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# gh-router — GitHub CLI extension wrapper for ijachi-llm-router
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -x "$SCRIPT_DIR/.venv/bin/ijachi-router" ]; then
+    exec "$SCRIPT_DIR/.venv/bin/ijachi-router" "$@"
+elif command -v ijachi-router >/dev/null 2>&1; then
+    exec ijachi-router "$@"
+elif [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+    exec "$SCRIPT_DIR/.venv/bin/python" -m cli "$@"
+elif command -v python3 >/dev/null 2>&1; then
+    exec python3 -m ijachi_router "$@"
+else
+    echo "Error: Python 3 and ijachi-llm-router are required. Run 'pip install ijachi-llm-router'" >&2
+    exit 1
+fi
