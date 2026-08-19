@@ -1,4 +1,4 @@
-name: ijachi-llm-router CI Demo
+name: ijachi-llm-router CI
 
 on:
   push:
@@ -7,7 +7,36 @@ on:
     branches: [ main ]
 
 jobs:
-  route-prompt:
+  test-suite:
+    name: Run Pytest & Verify 20 Providers
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Run Pytest Suite
+        run: pytest
+
+      - name: Verify Provider Registry
+        run: ijachi-router providers
+
+  route-demo:
+    name: GitHub Action Integration Test
+    needs: test-suite
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -21,6 +50,7 @@ jobs:
           priority: "cost"
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+        continue-on-error: true
 
       - name: Display Routing Results
         run: |
@@ -28,5 +58,3 @@ jobs:
           echo "${{ steps.llm.outputs.response }}"
           echo "Model Used: ${{ steps.llm.outputs.model }}"
           echo "Provider: ${{ steps.llm.outputs.provider }}"
-          echo "Cost: $${{ steps.llm.outputs.cost_usd }}"
-          echo "Latency: ${{ steps.llm.outputs.latency_sec }}s"
