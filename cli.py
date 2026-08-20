@@ -368,6 +368,98 @@ def export_sdk_cmd(lang):
     click.echo(click.style(f"✓ {msg}", fg="green"))
 
 
+@main.group(name="models")
+def models_group():
+    """[MODELS] Manage LLM model candidate definitions & pricing."""
+
+
+@models_group.command(name="list")
+def models_list_cmd():
+    """List all configured candidate models and their status."""
+    from ijachi_router.model_manager import ModelManager
+
+    mm = ModelManager()
+    models = mm.list_models()
+    click.echo(click.style(f"\n{'Model ID':<30} {'Provider':<15} {'Speed':<10} {'In/1k($)':<10} {'Out/1k($)':<10}", fg="cyan", bold=True))
+    click.echo("-" * 80)
+    for m in models:
+        click.echo(f"{m.model_id:<30} {m.provider:<15} {m.speed_tier:<10} ${m.input_per_1k:<9.4f} ${m.output_per_1k:<9.4f}")
+    click.echo()
+
+
+@models_group.command(name="add")
+@click.argument("model_id")
+@click.argument("provider")
+@click.option("--speed", type=click.Choice(["fast", "medium", "slow"]), default="medium")
+@click.option("--input-cost", type=float, default=0.001)
+@click.option("--output-cost", type=float, default=0.002)
+def models_add_cmd(model_id, provider, speed, input_cost, output_cost):
+    """Add a new custom model to models.yaml."""
+    from ijachi_router.model_manager import ModelManager
+
+    mm = ModelManager()
+    msg = mm.add_model(model_id=model_id, provider=provider, speed_tier=speed, input_per_1k=input_cost, output_per_1k=output_cost)
+    click.echo(click.style(f"✓ {msg}", fg="green"))
+
+
+@main.group(name="keys")
+def keys_group():
+    """[KEYS] Manage provider API keys securely."""
+
+
+@keys_group.command(name="list")
+def keys_list_cmd():
+    """List configured provider API keys (masked)."""
+    from ijachi_router.key_manager import KeyManager
+
+    km = KeyManager()
+    keys = km.list_keys()
+    if not keys:
+        click.echo(click.style("No provider API keys configured yet. Set one with: ijachi-router keys set <provider> <key>", fg="yellow"))
+        return
+    click.echo(click.style("\nConfigured Provider API Keys:", fg="cyan", bold=True))
+    for p, masked in keys.items():
+        click.echo(f"  • {p:<15} -> {masked}")
+    click.echo()
+
+
+@keys_group.command(name="set")
+@click.argument("provider")
+@click.argument("key_value")
+def keys_set_cmd(provider, key_value):
+    """Set and save an API key for a provider."""
+    from ijachi_router.key_manager import KeyManager
+
+    km = KeyManager()
+    msg = km.set_key(provider=provider, key_value=key_value)
+    click.echo(click.style(f"✓ {msg}", fg="green"))
+
+
+@keys_group.command(name="clear")
+@click.argument("provider")
+def keys_clear_cmd(provider):
+    """Clear an API key for a provider."""
+    from ijachi_router.key_manager import KeyManager
+
+    km = KeyManager()
+    msg = km.clear_key(provider=provider)
+    click.echo(click.style(f"✓ {msg}", fg="yellow"))
+
+
+@keys_group.command(name="test")
+def keys_test_cmd():
+    """Test live connectivity for configured provider API keys."""
+    from ijachi_router.key_manager import KeyManager
+
+    km = KeyManager()
+    status = km.test_keys()
+    click.echo(click.style("\nProvider Key Verification:", fg="cyan", bold=True))
+    for p, ok in status.items():
+        icon = "✓ Active" if ok else "✗ Missing"
+        click.echo(f"  • {p:<15} -> {icon}")
+    click.echo()
+
+
 
 
 @main.command()

@@ -180,6 +180,13 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
     if max_cost is not None:
         max_cost = float(max_cost)
 
+    # Auto-load saved keys from ~/.ijachi-llmr/keys.env
+    try:
+        from ijachi_router.key_manager import KeyManager
+        KeyManager().load_keys_into_env()
+    except Exception:
+        pass
+
     available = _detect_available_providers(models)
 
     return RouterConfig(
