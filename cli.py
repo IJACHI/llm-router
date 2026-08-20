@@ -558,8 +558,14 @@ def license_remove():
 def code_main():
     """Standalone ijachi-code CLI entrypoint tuned specifically for coding tasks."""
     import sys
+    known_commands = {
+        "route", "stats", "providers", "provider", "update-catalog", "train",
+        "serve", "dashboard", "license", "setup", "launcher", "export-sdk",
+        "models", "keys", "agent", "chat", "swarm", "fix", "consensus",
+        "index", "doc", "commit", "benchmark", "budget", "extension-server"
+    }
     args = sys.argv[1:]
-    if args and not args[0].startswith("-") and args[0] not in {"route", "stats", "providers", "provider", "update-catalog", "train", "serve", "dashboard", "license"}:
+    if args and not args[0].startswith("-") and args[0] not in known_commands:
         sys.argv.insert(1, "route")
         if "--priority" not in sys.argv and "-p" not in sys.argv:
             sys.argv.extend(["--priority", "quality"])
