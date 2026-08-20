@@ -29,6 +29,7 @@ _PROVIDER_ENV_VARS = {
     "sambanova": "SAMBANOVA_API_KEY",
     "bedrock": "AWS_ACCESS_KEY_ID",
     "azure": "AZURE_OPENAI_API_KEY",
+    "local": "OLLAMA_HOST",
 }
 
 
