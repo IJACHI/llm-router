@@ -5,7 +5,8 @@ Commands
   ijachi-router route "<prompt>"   Route a prompt, print response + cost footer.
   ijachi-router "<prompt>"         Alias: same as route (for convenience).
   ijachi-router stats              Show spend/latency table.
-  ijachi-router providers          List which providers have keys configured.
+  ijachi-router providers          List which providers have keys configured (alias: provider).
+  ijachi-router update-catalog     Fetch dynamic model catalog & pricing updates.
   ijachi-router train              Retrain the classifier from data/train_data.csv.
   ijachi-router serve              [PRO] Launch REST API gateway & dashboard.
   ijachi-router dashboard          [PRO] Open web telemetry dashboard in browser.
@@ -17,7 +18,29 @@ from __future__ import annotations
 import click
 
 
-@click.group()
+class RouterCLI(click.Group):
+    """Custom Click Group that handles command aliases and bare prompt routing."""
+
+    def get_command(self, ctx, cmd_name):
+        rv = super().get_command(ctx, cmd_name)
+        if rv is not None:
+            return rv
+        aliases = {
+            "provider": "providers",
+        }
+        if cmd_name in aliases:
+            return super().get_command(ctx, aliases[cmd_name])
+        return None
+
+    def parse_args(self, ctx, args):
+        if args and not args[0].startswith("-"):
+            cmd_name = args[0]
+            if cmd_name not in self.commands and cmd_name not in {"provider"}:
+                args.insert(0, "route")
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=RouterCLI)
 def main():
     """ijachi-llm-router: one prompt, best model, automatic fallback.
 
@@ -48,24 +71,24 @@ def route_cmd(prompt, priority, max_cost, models_yaml):
             router.config.priority = priority
         if max_cost is not None:
             router.config.max_cost_per_call = max_cost
-        result = router.route(prompt)
+
+        res = router.route(prompt)
+
+        # Print output text
+        click.echo(res.text)
+        click.echo()
+
+        # Print cost / latency footer in subtle gray/dim style
+        footer = (
+            f"[model={res.model_used:<24} "
+            f"cost=${res.cost:.4f}  "
+            f"latency={res.latency_sec:.2f}s  "
+            f"tokens={res.input_tokens}in/{res.output_tokens}out]"
+        )
+        click.echo(click.style(footer, fg="bright_black"))
+
     except Exception as e:  # noqa: BLE001
         raise click.ClickException(str(e)) from e
-
-    click.echo(result.text)
-    click.echo(
-        click.style(
-            f"\n[model={result.model}  cost=${result.cost_usd:.4f}  "
-            f"latency={result.latency_s:.2f}s]",
-            fg="bright_black",
-        )
-    )
-
-
-# Make `ijachi-router "..."` (no subcommand) work like `ijachi-router route "..."`
-@main.result_callback()
-def _post_main(*args, **kwargs):
-    pass
 
 
 @main.command()
@@ -75,7 +98,7 @@ def stats():
     print_stats()
 
 
-@main.command()
+@main.command(name="providers")
 @click.option("--models-yaml", default=None, hidden=True)
 def providers(models_yaml):
     """List providers and their configuration status."""
@@ -102,19 +125,6 @@ def providers(models_yaml):
         f"{', '.join(sorted(config.available_providers)) or 'none (set an API key)'}"
     )
     click.echo()
-
-
-@main.command(name="provider")
-@click.option(
-    "--models-yaml",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Path to custom models.yaml file.",
-)
-def provider_cmd(models_yaml):
-    """Alias for 'providers' command."""
-    providers(models_yaml)
-
 
 
 @main.command(name="update-catalog")
@@ -148,7 +158,6 @@ def train():
         raise click.ClickException(str(e)) from e
 
 
-
 @main.command()
 @click.option("--host", default="127.0.0.1", help="Host address to bind.")
 @click.option("--port", default=8000, type=int, help="Port to bind REST API server.")
@@ -171,27 +180,23 @@ def serve(host, port, license_key):
 
 @main.command()
 @click.option("--host", default="127.0.0.1", help="Host address to bind.")
-@click.option("--port", default=8000, type=int, help="Port to bind server.")
+@click.option("--port", default=8000, type=int, help="Port to bind dashboard.")
 def dashboard(host, port):
-    """[PRO] Launch and open the Web Telemetry Dashboard in your browser."""
+    """[PRO] Open the Web Telemetry Dashboard in your default browser."""
     import webbrowser
-    from ijachi_router.license import is_pro_active
-    from ijachi_router.server import start_server
+    from ijachi_router.license import check_pro_access
 
-    server = start_server(host=host, port=port)
-    if server:
-        url = f"http://{host}:{port}/"
-        click.echo(f"Opening dashboard in browser: {url}")
-        webbrowser.open(url)
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            click.echo("\nDashboard stopped.")
+    if not check_pro_access("Web Telemetry Dashboard"):
+        return
+
+    url = f"http://{host}:{port}/"
+    click.echo(f"Opening Web Dashboard at {url} …")
+    webbrowser.open(url)
 
 
 @main.group()
 def license():
-    """Manage ijachi-llm-router Pro license key."""
+    """Manage ijachi-llm-router Pro license keys."""
 
 
 @license.command(name="set")
@@ -229,28 +234,6 @@ def license_remove():
     remove_license_key()
     click.echo(click.style("✓ License key removed. Reset to Free Tier.", fg="yellow"))
 
-
-# ---------------------------------------------------------------------------
-# Allow `ijachi-router "prompt text"` as shorthand for `ijachi-router route "prompt text"`.
-# We patch __call__ on the group so bare invocations without a subcommand
-# keyword get forwarded to `route`.
-# ---------------------------------------------------------------------------
-
-_original_main_invoke = main.invoke
-
-
-def _patched_invoke(ctx):
-    """If the first arg looks like a prompt (not a subcommand name), route it."""
-    import sys
-    args = sys.argv[1:]
-    subcommand_names = {c for c in main.commands}  # type: ignore[attr-defined]
-    if args and args[0] not in subcommand_names and not args[0].startswith("-"):
-        # Prepend 'route' so click dispatches to the route subcommand
-        sys.argv.insert(1, "route")
-    return _original_main_invoke(ctx)
-
-
-main.invoke = _patched_invoke
 
 if __name__ == "__main__":
     main()
