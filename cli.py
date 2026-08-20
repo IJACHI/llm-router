@@ -40,15 +40,31 @@ class RouterCLI(click.Group):
         return super().parse_args(ctx, args)
 
 
-@click.group(cls=RouterCLI)
-def main():
-    """ijachi-llm-router: one prompt, best model, automatic fallback.
+@click.group(cls=RouterCLI, invoke_without_command=True)
+@click.pass_context
+def main(ctx):
+    """ijachi-llm-router: one prompt, best model, automatic fallback."""
+    if ctx.invoked_subcommand is None:
+        from ijachi_router.wizard import LauncherWizard
+        wizard = LauncherWizard()
+        wizard.run_interactive_setup()
 
-    \b
-    Quick start:
-      export ANTHROPIC_API_KEY=sk-...
-      ijachi-router route "Explain quicksort in Python"
-    """
+
+@main.command(name="setup")
+def setup_cmd():
+    """[LAUNCHER] Run interactive provider API key setup wizard."""
+    from ijachi_router.wizard import LauncherWizard
+
+    wizard = LauncherWizard()
+    wizard.run_interactive_setup()
+
+
+@main.command(name="launcher")
+def launcher_cmd():
+    """[LAUNCHER] Display compatible LLM providers and active key status."""
+    from ijachi_router.wizard import LauncherWizard
+
+    LauncherWizard.print_welcome_table()
 
 
 @main.command(name="route")
