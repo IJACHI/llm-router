@@ -59,9 +59,14 @@ def main():
               help="Override routing priority for this call.")
 @click.option("--max-cost", "-m", type=float, default=None,
               help="Max USD per call (skips models that exceed this).")
+@click.option("--humanize", "-H",
+              type=click.Choice(["light", "full", "off"]),
+              default="light",
+              show_default=True,
+              help="Humanization mode: light (safe for docs), full (strip all AI artifacts), off (raw output).")
 @click.option("--models-yaml", default=None, hidden=True,
               help="Custom path to models.yaml.")
-def route_cmd(prompt, priority, max_cost, models_yaml):
+def route_cmd(prompt, priority, max_cost, humanize, models_yaml):
     """Route PROMPT to the best available model and print the response."""
     from ijachi_router.core import Router
 
@@ -72,7 +77,7 @@ def route_cmd(prompt, priority, max_cost, models_yaml):
         if max_cost is not None:
             router.config.max_cost_per_call = max_cost
 
-        res = router.route(prompt)
+        res = router.route(prompt, humanize_mode=humanize)
 
         # Print output text
         click.echo(res.text)
@@ -80,10 +85,11 @@ def route_cmd(prompt, priority, max_cost, models_yaml):
 
         # Print cost / latency footer in subtle gray/dim style
         footer = (
-            f"[model={res.model_used:<24} "
-            f"cost=${res.cost:.4f}  "
-            f"latency={res.latency_sec:.2f}s  "
-            f"tokens={res.input_tokens}in/{res.output_tokens}out]"
+            f"[model={res.model:<24} "
+            f"cost=${res.cost_usd:.4f}  "
+            f"latency={res.latency_s:.2f}s  "
+            f"tokens={res.input_tokens}in/{res.output_tokens}out  "
+            f"humanize={humanize}]"
         )
         click.echo(click.style(footer, fg="bright_black"))
 

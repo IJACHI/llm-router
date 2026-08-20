@@ -134,11 +134,15 @@ class Router:
         """Reload config from disk (useful after editing models.yaml)."""
         self.config = load_config()
 
-    def route(self, prompt: str, **kwargs) -> GenerationResult:
+    def route(self, prompt: str, humanize_mode: str = "light", **kwargs) -> GenerationResult:
         """Route *prompt* to the best available model and return the result.
 
         Args:
             prompt: The raw user prompt.
+            humanize_mode: ``'light'`` (default), ``'full'``, or ``'off'``.
+                - ``light``: Strip AI openers, closers, attribution watermarks, typography artifacts.
+                - ``full``: All of light + code boilerplate comments + prose hedging.
+                - ``off``: Return raw LLM output unchanged.
             **kwargs: Forwarded to the provider (e.g. ``max_tokens``).
 
         Returns:
@@ -180,13 +184,13 @@ class Router:
         # 5. Route with fallback
         result = route_with_fallback(providers, optimized, **kwargs)
 
-        # 6. Humanize: strip AI watermarks & artifacts from response text
-        clean_text = humanize(result.text)
+        # 6. Humanize: strip AI watermarks & artifacts using the requested mode
+        clean_text = humanize(result.text, mode=humanize_mode)
 
         # 7. Security scan & auto-remediate any vulnerabilities in generated code
         clean_text, _ = scan_and_fix(clean_text)
 
-        # Rebuild result with cleaned text (immutable dataclass — recreate)
+        # Rebuild result with cleaned text (immutable dataclass - recreate)
         from dataclasses import replace as dc_replace
         result = dc_replace(result, text=clean_text)
 
@@ -200,6 +204,6 @@ class Router:
 # Module-level convenience
 # ---------------------------------------------------------------------------
 
-def route(prompt: str, **kwargs) -> GenerationResult:
-    """Convenience function: ``Router().route(prompt)``."""
-    return Router().route(prompt, **kwargs)
+def route(prompt: str, humanize_mode: str = "light", **kwargs) -> GenerationResult:
+    """Convenience function: ``Router().route(prompt, humanize_mode=...)``."""  
+    return Router().route(prompt, humanize_mode=humanize_mode, **kwargs)

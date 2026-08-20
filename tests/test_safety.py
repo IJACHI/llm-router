@@ -51,7 +51,7 @@ class TestHumanizer:
 
     def test_strips_ai_code_comments(self):
         code = "# Step 1: Initialize the router\nrouter = Router()\n# Here we build the result\nresult = router.route(prompt)"
-        result = humanize(code)
+        result = humanize(code, mode="full")
         assert "Step 1:" not in result
         assert "router = Router()" in result
 
@@ -63,7 +63,7 @@ class TestHumanizer:
 
     def test_simplifies_in_order_to(self):
         text = "In order to start the server, run the command below."
-        result = humanize(text)
+        result = humanize(text, mode="full")
         assert "In order to" not in result
         assert "to" in result
 
