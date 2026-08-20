@@ -264,23 +264,56 @@ def memory_clear_cmd(session_id):
     click.echo(click.style(f"✓ Cleared memory for session '{session_id}'.", fg="yellow"))
 
 
-@main.command(name="consensus")
-@click.argument("prompt")
-@click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="quality")
-def consensus_cmd(prompt, priority):
-    """[KILLER FEATURE] Query 2 top models & peer-review solutions for consensus code."""
-    from ijachi_router.consensus import consensus_route
+@main.command(name="benchmark")
+@click.option("--category", "-c", type=click.Choice(["code", "reasoning", "speed"]), default="code")
+def benchmark_cmd(category):
+    """[NEXT-GEN] Run standardized performance benchmark across active providers."""
+    from ijachi_router.benchmarker import BenchmarkEngine
 
-    click.echo(click.style("⚖️ Executing Multi-Model Consensus & Peer Review...", fg="cyan"))
-    res = consensus_route(prompt=prompt, priority=priority)
-    click.echo(res.final_text)
-    click.echo()
-    click.echo(
-        click.style(
-            f"[model_a={res.model_a} model_b={res.model_b} consensus_model={res.consensus_model} total_cost=${res.total_cost_usd:.4f}]",
-            fg="bright_black",
-        )
-    )
+    click.echo(click.style(f"📊 Running model performance benchmark (category: {category})...", fg="cyan"))
+    engine = BenchmarkEngine()
+    results = engine.run_benchmark(prompt_category=category)
+    click.echo(engine.format_table(results))
+
+
+@main.command(name="swarm")
+@click.argument("goal")
+def swarm_cmd(goal):
+    """[NEXT-GEN] Coordinate 4 sub-agents (Architect, Dev, Security, QA) on a feature goal."""
+    from ijachi_router.swarm import SwarmManager
+
+    click.echo(click.style(f"🐝 Launching Multi-Agent Coding Swarm: '{goal}'", fg="cyan"))
+    manager = SwarmManager()
+    res = manager.run_swarm(feature_goal=goal)
+    for phase in res.phases:
+        click.echo("\n" + click.style(f"=== {phase.agent_name} ({phase.model_used}) ===", fg="yellow", bold=True))
+        click.echo(phase.output_text[:1500])
+    click.echo(click.style(f"\n[swarm_phases={len(res.phases)} total_cost=${res.total_cost_usd:.4f}]", fg="bright_black"))
+
+
+@main.command(name="doc")
+def doc_cmd():
+    """[NEXT-GEN] Auto-generate ARCHITECTURE.md with interactive Mermaid diagrams."""
+    from ijachi_router.docgen import DocGenerator
+
+    docgen = DocGenerator()
+    msg = docgen.generate_architecture_md()
+    click.echo(click.style(f"✓ {msg}", fg="green"))
+
+
+@main.command(name="extension-server")
+@click.option("--host", default="127.0.0.1", help="Host address to bind.")
+@click.option("--port", default=8001, type=int, help="Port to bind IDE extension server.")
+def extension_server_cmd(host, port):
+    """[NEXT-GEN] Start JSON-RPC/REST bridge server for VS Code/IDE extensions."""
+    from ijachi_router.lsp import start_lsp_server
+
+    click.echo(click.style(f"🔌 IDE Extension Server running at http://{host}:{port}/", fg="cyan"))
+    server = start_lsp_server(host=host, port=port)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nServer stopped.")
 
 
 
