@@ -158,6 +158,47 @@ def train():
         raise click.ClickException(str(e)) from e
 
 
+@main.command(name="agent")
+@click.argument("task")
+@click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
+@click.option("--max-steps", "-s", type=int, default=10, help="Maximum tool iteration steps.")
+@click.option("--no-approval", is_flag=True, help="Auto-approve file changes and shell commands.")
+def agent_cmd(task, priority, max_steps, no_approval):
+    """[AGENTIC] Run an autonomous workspace file editing task."""
+    from ijachi_router.agent import AgenticRouter
+
+    agent = AgenticRouter(priority=priority, require_approval=not no_approval)
+    click.echo(click.style(f"🚀 Starting autonomous agentic workspace task: {task}", fg="cyan"))
+    result = agent.run(task, max_steps=max_steps)
+    click.echo("\n" + click.style("=== Task Result ===", fg="green", bold=True))
+    click.echo(result.final_text)
+    click.echo(click.style(f"\n[steps={len(result.steps)} total_cost=${result.total_cost_usd:.4f}]", fg="bright_black"))
+
+
+@main.command(name="chat")
+@click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
+def chat_cmd(priority):
+    """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
+    from ijachi_router.agent import AgenticRouter
+
+    agent = AgenticRouter(priority=priority, require_approval=True)
+    click.echo(click.style("💬 ijachi-code Interactive Agentic REPL Session", fg="cyan", bold=True))
+    click.echo("Type your workspace coding prompt or 'exit' / 'quit' to end.\n")
+
+    while True:
+        try:
+            user_input = click.prompt("ijachi-code>", type=str)
+            if user_input.strip().lower() in {"exit", "quit", "q"}:
+                click.echo("Goodbye!")
+                break
+            result = agent.run(user_input)
+            click.echo("\n" + result.final_text + "\n")
+        except (KeyboardInterrupt, EOFError):
+            click.echo("\nSession ended.")
+            break
+
+
+
 @main.command()
 @click.option("--host", default="127.0.0.1", help="Host address to bind.")
 @click.option("--port", default=8000, type=int, help="Port to bind REST API server.")

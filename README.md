@@ -123,6 +123,15 @@ ijachi-router route "What time is it?" --priority speed        # fastest model w
 # Cap cost per call (skips models above threshold)
 ijachi-router route "Explain neural nets" --max-cost 0.01
 
+# Dedicated coding assistant mode
+ijachi-code "Write a Python script to sort a list"
+
+# [AGENTIC] Autonomous multi-step workspace task (reads/edits files, runs commands)
+ijachi-code agent "Refactor helper function in main.py and run pytest"
+
+# [AGENTIC] Interactive REPL terminal session with file modification approval prompts
+ijachi-code chat
+
 # Show spend + latency table for all recorded calls
 ijachi-router stats
 

@@ -257,6 +257,62 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(e)})
             return
 
+        if parsed.path == "/v1/agent/run":
+            if not self._verify_auth():
+                self._send_json(
+                    403,
+                    {
+                        "error": "Pro License Required",
+                        "message": "Include a valid Pro license key in header: Authorization: Bearer IJPRO-...",
+                        "paystack_url": "https://paystack.shop/pay/enlqpvzflw",
+                    },
+                )
+                return
+
+            content_length = int(self.headers.get("Content-Length", 0))
+            body_bytes = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+            except Exception:
+                self._send_json(400, {"error": "Invalid JSON payload"})
+                return
+
+            task = payload.get("task")
+            if not task:
+                self._send_json(400, {"error": "Missing 'task' in request body"})
+                return
+
+            priority = payload.get("priority", "balanced")
+            max_steps = int(payload.get("max_steps", 10))
+
+            try:
+                from ijachi_router.agent import AgenticRouter
+
+                agent = AgenticRouter(priority=priority, require_approval=False)
+                result = agent.run(task, max_steps=max_steps)
+                self._send_json(
+                    200,
+                    {
+                        "status": "success",
+                        "final_text": result.final_text,
+                        "steps": [
+                            {
+                                "step": s.step_number,
+                                "thought": s.thought,
+                                "tool": s.tool_name,
+                                "model": s.model_used,
+                                "cost_usd": s.cost_usd,
+                            }
+                            for s in result.steps
+                        ],
+                        "total_cost_usd": result.total_cost_usd,
+                        "completed": result.completed,
+                    },
+                )
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+            return
+
         self._send_json(404, {"error": "Endpoint not found"})
 
 
