@@ -64,11 +64,13 @@ def main():
               default="light",
               show_default=True,
               help="Humanization mode: light (safe for docs), full (strip all AI artifacts), off (raw output).")
+@click.option("--stream", "-s", is_flag=True, default=False, help="Stream response tokens in real-time.")
 @click.option("--models-yaml", default=None, hidden=True,
               help="Custom path to models.yaml.")
-def route_cmd(prompt, priority, max_cost, humanize, models_yaml):
+def route_cmd(prompt, priority, max_cost, humanize, stream, models_yaml):
     """Route PROMPT to the best available model and print the response."""
     from ijachi_router.core import Router
+    from ijachi_router.streaming import stream_route
 
     try:
         router = Router(models_yaml=models_yaml)
@@ -76,6 +78,12 @@ def route_cmd(prompt, priority, max_cost, humanize, models_yaml):
             router.config.priority = priority
         if max_cost is not None:
             router.config.max_cost_per_call = max_cost
+
+        if stream:
+            for chunk in stream_route(prompt, priority=priority, humanize_mode=humanize):
+                click.echo(chunk, nl=False)
+            click.echo()
+            return
 
         res = router.route(prompt, humanize_mode=humanize)
 
@@ -301,19 +309,63 @@ def doc_cmd():
     click.echo(click.style(f"✓ {msg}", fg="green"))
 
 
-@main.command(name="extension-server")
-@click.option("--host", default="127.0.0.1", help="Host address to bind.")
-@click.option("--port", default=8001, type=int, help="Port to bind IDE extension server.")
-def extension_server_cmd(host, port):
-    """[NEXT-GEN] Start JSON-RPC/REST bridge server for VS Code/IDE extensions."""
-    from ijachi_router.lsp import start_lsp_server
+@main.command(name="pr-review")
+@click.argument("pr_number")
+def pr_review_cmd(pr_number):
+    """[ECOSYSTEM] Perform automated architectural code review on GitHub PR."""
+    from ijachi_router.github_automation import GitHubAutomation
 
-    click.echo(click.style(f"🔌 IDE Extension Server running at http://{host}:{port}/", fg="cyan"))
-    server = start_lsp_server(host=host, port=port)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        click.echo("\nServer stopped.")
+    click.echo(click.style(f"🤖 Reviewing Pull Request #{pr_number}...", fg="cyan"))
+    gh_auto = GitHubAutomation()
+    review = gh_auto.review_pr(pr_number)
+    click.echo(review)
+
+
+@main.command(name="release")
+@click.argument("tag")
+def release_cmd(tag):
+    """[ECOSYSTEM] Auto-generate CHANGELOG.md release notes for a Git tag."""
+    from ijachi_router.github_automation import GitHubAutomation
+
+    gh_auto = GitHubAutomation()
+    msg = gh_auto.generate_release_notes(tag)
+    click.echo(click.style(f"✓ {msg}", fg="green"))
+
+
+@main.group(name="budget")
+def budget_group():
+    """[ECOSYSTEM] Manage monthly USD budget limits & failover caps."""
+
+
+@budget_group.command(name="status")
+def budget_status_cmd():
+    """View monthly budget limits and current spend status."""
+    from ijachi_router.budget import BudgetManager
+
+    bm = BudgetManager()
+    click.echo(click.style(bm.summary(), fg="cyan"))
+
+
+@budget_group.command(name="set")
+@click.argument("limit_usd", type=float)
+def budget_set_cmd(limit_usd):
+    """Set monthly USD budget limit."""
+    from ijachi_router.budget import BudgetManager
+
+    bm = BudgetManager()
+    bm.set_budget(limit_usd)
+    click.echo(click.style(f"✓ Monthly budget limit set to ${limit_usd:.2f} USD.", fg="green"))
+
+
+@main.command(name="export-sdk")
+@click.option("--lang", "-l", type=click.Choice(["typescript", "go", "rust"]), default="typescript")
+def export_sdk_cmd(lang):
+    """[ECOSYSTEM] Export native client SDK library (TypeScript, Go, Rust)."""
+    from ijachi_router.sdk_generator import SDKGenerator
+
+    generator = SDKGenerator()
+    msg = generator.export_sdk(language=lang)
+    click.echo(click.style(f"✓ {msg}", fg="green"))
 
 
 
