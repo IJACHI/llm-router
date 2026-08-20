@@ -9,7 +9,7 @@ from ijachi_router.memory import ProjectMemory
 
 
 def test_project_memory_lifecycle(tmp_path):
-    mem = ProjectMemory(root_dir=tmp_path, session_id="test_session")
+    mem = ProjectMemory(root_dir=tmp_path, session_id="test_session", memory_dir=tmp_path / "mem")
     assert mem.project_name == tmp_path.name
     assert mem.session_id == "test_session"
 
@@ -18,13 +18,13 @@ def test_project_memory_lifecycle(tmp_path):
     assert len(mem.turns) == 1
 
     # Reload memory from disk
-    mem2 = ProjectMemory(root_dir=tmp_path, session_id="test_session")
+    mem2 = ProjectMemory(root_dir=tmp_path, session_id="test_session", memory_dir=tmp_path / "mem")
     assert len(mem2.turns) == 1
     assert mem2.turns[0].prompt == "How do I sort a list in Python?"
 
 
 def test_memory_token_compression(tmp_path):
-    mem = ProjectMemory(root_dir=tmp_path, session_id="compress_test")
+    mem = ProjectMemory(root_dir=tmp_path, session_id="compress_test", memory_dir=tmp_path / "mem")
 
     # Add long prompts to cross threshold
     for i in range(10):
@@ -44,7 +44,7 @@ def test_memory_token_compression(tmp_path):
 
 
 def test_memory_clear(tmp_path):
-    mem = ProjectMemory(root_dir=tmp_path, session_id="clear_test")
+    mem = ProjectMemory(root_dir=tmp_path, session_id="clear_test", memory_dir=tmp_path / "mem")
     mem.add_turn("Prompt", "Response")
     assert len(mem.turns) == 1
 
