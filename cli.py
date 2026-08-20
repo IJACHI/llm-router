@@ -104,6 +104,19 @@ def providers(models_yaml):
     click.echo()
 
 
+@main.command(name="provider")
+@click.option(
+    "--models-yaml",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to custom models.yaml file.",
+)
+def provider_cmd(models_yaml):
+    """Alias for 'providers' command."""
+    providers(models_yaml)
+
+
+
 @main.command(name="update-catalog")
 @click.option("--force", is_flag=True, help="Force refresh from remote registry.")
 def update_catalog_cmd(force):
