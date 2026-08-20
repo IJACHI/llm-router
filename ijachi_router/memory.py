@@ -26,12 +26,18 @@ class MemoryTurn:
 class ProjectMemory:
     """Manages persistent project memory & lossless hierarchical context compression."""
 
-    def __init__(self, root_dir: Path | str | None = None, session_id: str = "default"):
+    def __init__(
+        self,
+        root_dir: Path | str | None = None,
+        session_id: str = "default",
+        memory_dir: Path | str | None = None,
+    ):
         self.root_dir = Path(root_dir or Path.cwd()).resolve()
         self.project_name = self.root_dir.name
         self.session_id = session_id
-        self.memory_file = _MEMORY_DIR / f"{self.project_name}_{self.session_id}.json"
-        
+        self.memory_dir = Path(memory_dir).resolve() if memory_dir else _MEMORY_DIR
+        self.memory_file = self.memory_dir / f"{self.project_name}_{self.session_id}.json"
+
         self.turns: list[MemoryTurn] = []
         self.compressed_digest: str = ""
         self.total_tokens_saved: int = 0
@@ -52,7 +58,7 @@ class ProjectMemory:
 
     def save(self) -> None:
         """Persist memory state to disk."""
-        _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
         data = {
             "project_name": self.project_name,
             "session_id": self.session_id,
