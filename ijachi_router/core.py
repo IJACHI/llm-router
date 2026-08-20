@@ -18,10 +18,12 @@ from pathlib import Path
 from ijachi_router.classifier import complexity_score, predict_category
 from ijachi_router.config import ModelConfig, RouterConfig, load_config
 from ijachi_router.fallback import reset_breakers, route_with_fallback
+from ijachi_router.humanizer import humanize
 from ijachi_router.metrics import log_result
 from ijachi_router.optimizer import optimize_prompt
 from ijachi_router.providers import REGISTRY
 from ijachi_router.providers.base import GenerationResult, Provider, ProviderError
+from ijachi_router.security import scan_and_fix
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +180,17 @@ class Router:
         # 5. Route with fallback
         result = route_with_fallback(providers, optimized, **kwargs)
 
-        # 6. Log
+        # 6. Humanize: strip AI watermarks & artifacts from response text
+        clean_text = humanize(result.text)
+
+        # 7. Security scan & auto-remediate any vulnerabilities in generated code
+        clean_text, _ = scan_and_fix(clean_text)
+
+        # Rebuild result with cleaned text (immutable dataclass — recreate)
+        from dataclasses import replace as dc_replace
+        result = dc_replace(result, text=clean_text)
+
+        # 8. Log
         log_result(result)
 
         return result

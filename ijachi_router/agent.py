@@ -18,6 +18,8 @@ from rich.console import Console
 from rich.prompt import Confirm
 
 from ijachi_router.core import route
+from ijachi_router.security import scan_and_fix, format_security_summary, scan
+from ijachi_router.validator import validate
 
 console = Console()
 
@@ -55,6 +57,21 @@ class WorkspaceTools:
 
     def write_file(self, path: str, content: str, require_approval: bool = True) -> str:
         target = self._resolve_path(path)
+        ext = target.suffix.lower()
+
+        # Zero-regression validation gate
+        val = validate(content, filename=str(target))
+        if not val.valid:
+            return f"Write blocked - validation errors:\n{val.summary()}"
+        if val.warnings:
+            console.print(f"[yellow]{val.summary()}[/yellow]")
+
+        # Security scan & auto-remediate
+        content, sec_issues = scan_and_fix(content)
+        report = scan(content)
+        if not report.is_safe:
+            console.print(f"[bold red]{format_security_summary(report)}[/bold red]")
+
         if require_approval:
             console.print(f"\n[bold yellow]⚠️ Workspace File Creation/Overwrite Request[/bold yellow]")
             console.print(f"Target path: [cyan]{target}[/cyan]")
@@ -75,6 +92,23 @@ class WorkspaceTools:
             existing = target.read_text(encoding="utf-8")
             if target_content not in existing:
                 return f"Error: Target content string not found in '{path}'."
+
+            new_content = existing.replace(target_content, replacement_content, 1)
+
+            # Zero-regression validation gate on the full resulting file
+            val = validate(new_content, filename=str(target))
+            if not val.valid:
+                return f"Edit blocked - would cause syntax errors:\n{val.summary()}"
+            if val.warnings:
+                console.print(f"[yellow]{val.summary()}[/yellow]")
+
+            # Security scan the replacement content
+            replacement_content, _ = scan_and_fix(replacement_content)
+            new_content = existing.replace(target_content, replacement_content, 1)
+            report = scan(new_content)
+            if not report.is_safe:
+                console.print(f"[bold red]{format_security_summary(report)}[/bold red]")
+
             if require_approval:
                 console.print(f"\n[bold yellow]⚠️ Workspace File Edit Request[/bold yellow]")
                 console.print(f"Target path: [cyan]{target}[/cyan]")
@@ -83,7 +117,6 @@ class WorkspaceTools:
                 if not Confirm.ask("Do you want to apply this edit?", default=True):
                     return "Cancelled by user."
 
-            new_content = existing.replace(target_content, replacement_content, 1)
             target.write_text(new_content, encoding="utf-8")
             return f"Successfully applied edit to '{path}'."
         except Exception as e:
