@@ -45,6 +45,7 @@ dev       = [
 
 [project.scripts]
 ijachi-router = "cli:main"
+ijachi-code = "cli:code_main"
 ijr = "cli:main"
 
 [project.urls]

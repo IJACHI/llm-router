@@ -235,5 +235,16 @@ def license_remove():
     click.echo(click.style("✓ License key removed. Reset to Free Tier.", fg="yellow"))
 
 
+def code_main():
+    """Standalone ijachi-code CLI entrypoint tuned specifically for coding tasks."""
+    import sys
+    args = sys.argv[1:]
+    if args and not args[0].startswith("-") and args[0] not in {"route", "stats", "providers", "provider", "update-catalog", "train", "serve", "dashboard", "license"}:
+        sys.argv.insert(1, "route")
+        if "--priority" not in sys.argv and "-p" not in sys.argv:
+            sys.argv.extend(["--priority", "quality"])
+    main()
+
+
 if __name__ == "__main__":
     main()
