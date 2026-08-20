@@ -59,19 +59,27 @@ class LauncherWizard:
 
     def print_welcome_table() -> None:
         """Render clean terminal table of all compatible providers and key status."""
-        console.print("\n[bold cyan]🚀 ijachi-code — Multi-Provider AI Coding Launcher[/bold cyan]")
-        console.print("[dim]Compatible LLM Service Providers & Active Key Status:[/dim]\n")
+        from rich.table import Table
+        from rich.panel import Panel
+        from ijachi_router.ui import print_banner, get_status_pill, get_badge
+
+        print_banner()
+
+        table = Table(title="[bold gold1]⚡ Supported LLM Service Providers & Status[/bold gold1]", border_style="bright_blue", header_style="bold magenta")
+        table.add_column("Provider", style="bold cyan", width=15)
+        table.add_column("Status Badge", width=18)
+        table.add_column("Env Variable", style="dim white", width=22)
+        table.add_column("Model Capability & Best Use", style="italic white", width=45)
 
         status_map = LauncherWizard().get_provider_status()
 
-        console.print(f"{'Provider':<15} {'Status':<12} {'Environment Variable':<22} {'Model Capability':<45}")
-        console.print("-" * 95)
-
         for p, info in status_map.items():
-            icon = "[bold green]✓ Active[/bold green]" if info["active"] else "[dim red]✗ Not Set[/dim red]"
-            console.print(f"{p:<15} {icon:<22} {info['env_var']:<22} [dim]{info['description'][:45]}[/dim]")
+            is_free = (p == "local")
+            pill = get_status_pill(active=info["active"], is_free=is_free)
+            table.add_row(p.upper(), pill, info["env_var"], info["description"])
 
-        console.print("\n[dim]Multiple API keys can be configured. The router automatically falls back if a provider goes down.[/dim]\n")
+        console.print(Panel(table, border_style="cyan", padding=(1, 1)))
+        console.print("\n[dim cyan]💡 Tip: You can configure multiple provider API keys. ijachi-code automatically switches and falls back if a provider is down.[/dim cyan]\n")
 
     def run_interactive_setup(self) -> None:
         """Interactive setup flow for selecting providers and entering API keys."""
