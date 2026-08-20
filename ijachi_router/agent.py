@@ -160,6 +160,29 @@ class WorkspaceTools:
             return f"Error running command: {e}"
 
 
+    def git_checkpoint(self) -> str:
+        """Create a temporary Git stash checkpoint before multi-file edits."""
+        return self.run_command("git stash push -u -m 'ijachi-code safety checkpoint'", require_approval=False)
+
+    def git_commit(self, message: str | None = None) -> str:
+        """Generate a conventional commit message from git diff and commit."""
+        status = self.run_command("git status --porcelain", require_approval=False)
+        if not status.strip() or "Exit Code: 0" not in status:
+            return "No workspace changes to commit."
+
+        if not message:
+            diff = self.run_command("git diff", require_approval=False)
+            prompt = (
+                f"Generate a single-line Conventional Commit message (e.g. feat(scope): message) "
+                f"for the following git diff:\n\n{diff[:3000]}"
+            )
+            res = route(prompt=prompt, priority="speed")
+            message = res.text.strip().splitlines()[0].replace('"', '')
+
+        self.run_command("git add .", require_approval=False)
+        return self.run_command(f'git commit -m "{message}"', require_approval=self.require_approval)
+
+
 # ---------------------------------------------------------------------------
 # Agentic Execution Loop
 # ---------------------------------------------------------------------------
@@ -319,3 +342,26 @@ class AgenticRouter:
             total_cost_usd=total_cost,
             completed=False,
         )
+
+    def fix_tests(self, test_command: str = "pytest", max_retries: int = 3) -> AgentResult:
+        """Automated test repair loop: run test suite, capture failures, route fixes, and re-run until 100% pass."""
+        console.print(f"[bold cyan]🧪 Starting Auto-Fixing Test Repair Loop: '{test_command}'[/bold cyan]")
+        for attempt in range(1, max_retries + 1):
+            console.print(f"\n[bold yellow]Attempt {attempt}/{max_retries} running '{test_command}'...[/bold yellow]")
+            out = self.tools.run_command(test_command, require_approval=False)
+            if "Exit Code: 0" in out:
+                console.print("[bold green]✅ All tests passed 100%![/bold green]")
+                return AgentResult(final_text=f"Tests passed successfully on attempt {attempt}.", completed=True)
+
+            console.print(f"[bold red]❌ Test suite failed. Routing stack trace to reasoning model for repairs...[/bold red]")
+            task_prompt = (
+                f"The test command '{test_command}' failed with output:\n\n{out[:4000]}\n\n"
+                f"Inspect workspace files, locate the failing code, apply the required fix using edit_file/write_file, and verify."
+            )
+            res = self.run(task_prompt, max_steps=5)
+            if res.completed and "Exit Code: 0" in self.tools.run_command(test_command, require_approval=False):
+                console.print("[bold green]✅ All tests passed after automated repairs![/bold green]")
+                return res
+
+        return AgentResult(final_text=f"Failed to fix test suite after {max_retries} attempts.", completed=False)
+

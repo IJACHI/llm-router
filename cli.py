@@ -198,6 +198,60 @@ def chat_cmd(priority):
             break
 
 
+@main.command(name="fix")
+@click.option("--command", "-c", default="pytest", help="Test runner command (pytest, npm test, etc.).")
+@click.option("--max-retries", "-r", default=3, type=int, help="Maximum repair retry iterations.")
+def fix_cmd(command, max_retries):
+    """[KILLER FEATURE] Run automated test repair loop until 100% passing."""
+    from ijachi_router.agent import AgenticRouter
+
+    agent = AgenticRouter(require_approval=False)
+    res = agent.fix_tests(test_command=command, max_retries=max_retries)
+    click.echo(res.final_text)
+
+
+@main.command(name="commit")
+@click.option("--message", "-m", default=None, help="Commit message override.")
+def commit_cmd(message):
+    """[KILLER FEATURE] Generate Conventional Commit message and commit changes."""
+    from ijachi_router.agent import AgenticRouter
+
+    agent = AgenticRouter(require_approval=True)
+    res = agent.git_commit(message=message)
+    click.echo(click.style(res, fg="green"))
+
+
+@main.command(name="index")
+def index_cmd():
+    """[KILLER FEATURE] Scan and index workspace code symbols into symbols.json cache."""
+    from ijachi_router.indexer import WorkspaceIndexer
+
+    indexer = WorkspaceIndexer()
+    symbols = indexer.index_workspace()
+    click.echo(click.style(f"✓ Indexed {len(symbols)} workspace symbols.", fg="green"))
+    click.echo(indexer.get_summary())
+
+
+@main.command(name="consensus")
+@click.argument("prompt")
+@click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="quality")
+def consensus_cmd(prompt, priority):
+    """[KILLER FEATURE] Query 2 top models & peer-review solutions for consensus code."""
+    from ijachi_router.consensus import consensus_route
+
+    click.echo(click.style("⚖️ Executing Multi-Model Consensus & Peer Review...", fg="cyan"))
+    res = consensus_route(prompt=prompt, priority=priority)
+    click.echo(res.final_text)
+    click.echo()
+    click.echo(
+        click.style(
+            f"[model_a={res.model_a} model_b={res.model_b} consensus_model={res.consensus_model} total_cost=${res.total_cost_usd:.4f}]",
+            fg="bright_black",
+        )
+    )
+
+
+
 
 @main.command()
 @click.option("--host", default="127.0.0.1", help="Host address to bind.")

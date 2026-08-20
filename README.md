@@ -132,6 +132,18 @@ ijachi-code agent "Refactor helper function in main.py and run pytest"
 # [AGENTIC] Interactive REPL terminal session with file modification approval prompts
 ijachi-code chat
 
+# 🔁 [KILLER FEATURE] Auto-Fixing Test Repair Loop (runs tests, captures traces, auto-fixes until 100% pass)
+ijachi-code fix --command "pytest"
+
+# ⚖️ [KILLER FEATURE] Multi-Model Consensus Peer Review (queries 2 top models & synthesizes peer-reviewed output)
+ijachi-code consensus "Write a thread-safe lock-free queue in C++"
+
+# 🗂️ [KILLER FEATURE] Workspace Symbol Indexer (scans & caches code symbols into symbols.json)
+ijachi-code index
+
+# 🛡️ [KILLER FEATURE] Git Safety Checkpoints & Conventional Commit Generator
+ijachi-code commit
+
 # Show spend + latency table for all recorded calls
 ijachi-router stats
 
