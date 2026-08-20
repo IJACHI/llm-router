@@ -238,6 +238,32 @@ def index_cmd():
     click.echo(indexer.get_summary())
 
 
+@main.group(name="memory")
+def memory_group():
+    """[MEMORY] Manage persistent project memory & token savings."""
+
+
+@memory_group.command(name="status")
+@click.option("--session-id", default="default", help="Session ID to inspect.")
+def memory_status_cmd(session_id):
+    """View project memory status, active turns, and token savings."""
+    from ijachi_router.memory import ProjectMemory
+
+    mem = ProjectMemory(session_id=session_id)
+    click.echo(click.style(mem.summary(), fg="cyan"))
+
+
+@memory_group.command(name="clear")
+@click.option("--session-id", default="default", help="Session ID to clear.")
+def memory_clear_cmd(session_id):
+    """Clear persistent project session memory."""
+    from ijachi_router.memory import ProjectMemory
+
+    mem = ProjectMemory(session_id=session_id)
+    mem.clear()
+    click.echo(click.style(f"✓ Cleared memory for session '{session_id}'.", fg="yellow"))
+
+
 @main.command(name="consensus")
 @click.argument("prompt")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="quality")
