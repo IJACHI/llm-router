@@ -104,7 +104,7 @@ _PROVIDER_ENV_KEYS: dict[str, str | None] = {
     "sambanova": "SAMBANOVA_API_KEY",
     "fireworks": "FIREWORKS_API_KEY",
     "huggingface": "HF_TOKEN",
-    "custom": None,  # Local custom server (e.g. vLLM/LM Studio)
+    "custom": "LOCAL_SERVER_URL",  # Local custom server (e.g. vLLM/LM Studio)
     "azure": "AZURE_OPENAI_API_KEY",
     "bedrock": "AWS_ACCESS_KEY_ID",
 }
