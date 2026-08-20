@@ -2,21 +2,24 @@
   <img src="assets/logo.png" alt="ijachi-llm-router logo" width="160"/>
 </p>
 
-<h1 align="center">ijachi-llm-router & ijachi-code</h1>
+<h1 align="center">ijachi & ijachi-code</h1>
 
 <p align="center">
-  <strong>One prompt. Best model. Zero watermarks. Enterprise security. Automatic fallback.</strong>
+  <strong>One command. Best model. Zero watermarks. Enterprise security. Automatic fallback.</strong>
 </p>
 
-`ijachi-llm-router` classifies your prompt, picks the cheapest model that can handle it well, rewrites it for that model's quirks, sanitizes AI watermarks, scans code for security flaws, and falls back automatically across 20 providers — all in one simple command.
+`ijachi` classifies your prompt, picks the cheapest model that can handle it well, rewrites it for that model's quirks, sanitizes AI watermarks, scans code for security flaws, and falls back automatically across 20 providers — all from a single command.
 
 ```
-$ ijachi-router route "What is the capital of France?"
-Paris
+$ ijachi
+╭─────────────────────── ✨ IJACHI AGENTIC PLATFORM ✨ ────────────────────────╮
+│          ⚡ One Prompt. Best Model. Zero Watermarks. OWASP Secured.          │
+╰───────────────── v1.0.0 • 20 Providers • 100% Test Coverage ─────────────────╯
 
-[model=gpt-4o-mini  cost=$0.0001  latency=0.6s  humanize=light]
+$ ijachi "Write a Python FastAPI web server with JWT auth"
+[model=claude-3-7-sonnet  cost=$0.0012  latency=0.8s  humanize=light]
 
-$ ijachi-code swarm "Build a FastAPI web server with JWT auth and SQLite"
+$ ijachi swarm "Build a task manager app in Python with SQLite"
 === ArchitectAgent (claude-3-7-sonnet) ===
 Designed system architecture and API schema.
 
@@ -28,44 +31,29 @@ Implemented FastAPI endpoints and database models.
 
 === QATesterAgent (gpt-4o-mini) ===
 Generated unit tests. 100% tests passing.
-
-[swarm_phases=4  total_cost=$0.0035]
 ```
 
 ---
 
-## Why?
-
-| Without ijachi-llm-router | With ijachi-llm-router & ijachi-code |
-|---|---|
-| You hardcode one model for everything | Routes each prompt to the right model dynamically |
-| Simple questions cost as much as hard ones | Trivial prompts → cheap/fast model ($0.000075/1k) |
-| Output sounds robotic with AI filler & watermarks | Strips AI watermarks & SynthID probability biasing |
-| Generated code can contain vulnerabilities | OWASP Top 10 security scanning & auto-remediation |
-| One provider outage = your app is down | Automatic fallback across 20 providers |
-| Re-sending massive context wastes tokens | Persistent memory compresses context (saves 70-90%) |
-| Manual API key & YAML management | Secure Key Manager & CLI Model Manager |
-
----
-
-## 60-second quickstart
+## ⚡ Universal Quickstart (Launch from Anywhere!)
 
 ```bash
 pip install ijachi-llm-router
 
-# Set at least one provider key securely (or run Ollama locally — no key needed)
-ijachi-router keys set anthropic "sk-ant-..."
-ijachi-router keys set openai "sk-proj-..."
-
-# Route your first prompt (use ijachi-router or short alias ijr)
-ijachi-router route "Explain quicksort in Python"
+# Launch instantly from ANY folder in ANY terminal window:
+ijachi
 ```
 
-**Zero-cost test with Ollama (no API keys needed):**
+**Set provider API keys interactively:**
 ```bash
-# Install Ollama from https://ollama.com, then:
+ijachi setup
+```
+*(Displays a cyberpunk table of all 20 compatible providers with live `🟢 ACTIVE` / `⚪ LOCAL FREE` status badges).*
+
+**Zero-cost offline test with Ollama (no API keys needed):**
+```bash
 ollama pull llama3.2:3b
-ijachi-router route "What is the speed of light?"
+ijachi "What is the speed of light?"
 ```
 
 ---
@@ -83,18 +71,18 @@ Every response and file modification passes through a 4-stage safety pipeline:
 
 ## 🧠 Persistent Project Memory (70-90% Token Savings)
 
-`ijachi-code` maintains project state across CLI sessions (`~/.ijachi-llmr/memory/`). When interaction history exceeds ~1,200 tokens, it automatically compresses past turns into a **Lossless Project Digest**, sending a ~200-token digest instead of 20,000+ raw tokens on every prompt!
+`ijachi` maintains project state across CLI sessions (`~/.ijachi-llmr/memory/`). When interaction history exceeds ~1,200 tokens, it automatically compresses past turns into a **Lossless Project Digest**, sending a ~200-token digest instead of 20,000+ raw tokens on every prompt!
 
 ```bash
-ijachi-code memory status  # View active turns and token cost savings
-ijachi-code memory clear   # Reset session memory
+ijachi memory status  # View active turns and token cost savings
+ijachi memory clear   # Reset session memory
 ```
 
 ---
 
-## Supported providers & models
+## Supported Providers & Models
 
-`ijachi-llm-router` comes preconfigured out-of-the-box with **20 major LLM service providers** and **40+ top models** in [`models.yaml`](models.yaml).
+`ijachi` comes preconfigured out-of-the-box with **20 major LLM service providers** and **40+ top models** in [`models.yaml`](models.yaml).
 
 | Provider | Model | Speed | Cost (in/out per 1K) | Best for |
 |---|---|---|---|---|
@@ -125,95 +113,69 @@ ijachi-code memory clear   # Reset session memory
 
 ```bash
 # ---------------------------------------------------------
+# GLOBAL SHORTCUTS & LAUNCHERS
+# ---------------------------------------------------------
+ijachi                                                     # Launch interactive AI coding session
+ijachi setup                                               # Interactive multi-key setup wizard
+ijachi launcher                                            # Display provider status dashboard
+
+# ---------------------------------------------------------
 # ROUTING & STREAMING
 # ---------------------------------------------------------
-ijachi-router route "Explain quicksort"                    # Route to best model
-ijachi-router route "Write a web scraper" --stream         # Real-time token streaming
-ijachi-router route "Summarise doc" --priority cost        # Priority: cost | speed | quality
-ijachi-router route "Complex task" --humanize full         # Humanize mode: light | full | off
+ijachi "Explain quicksort in Python"                        # One-shot coding prompt
+ijachi "Write web scraper" --stream                        # Real-time token streaming
+ijachi route "Summarise doc" --priority cost               # Priority: cost | speed | quality
 
 # ---------------------------------------------------------
-# AGENTIC CODING (`ijachi-code`)
+# AGENTIC WORKFLOWS
 # ---------------------------------------------------------
-ijachi-code agent "Refactor main.py and run pytest"        # Autonomous workspace task
-ijachi-code chat                                           # Interactive REPL session
-ijachi-code swarm "Build auth API with FastAPI"            # 4-Agent Swarm (Architect/Dev/Security/QA)
-ijachi-code fix --command "pytest"                         # Auto-fixing test repair loop
-ijachi-code consensus "Write lock-free queue in C++"      # Multi-model peer-review code
-ijachi-code index                                          # Index workspace code symbols
-ijachi-code doc                                            # Auto-generate ARCHITECTURE.md + Mermaid diagrams
-ijachi-code commit                                         # Conventional Commit + Git checkpoint
-
-# ---------------------------------------------------------
-# PERFORMANCE, BENCHMARKING & BUDGET
-# ---------------------------------------------------------
-ijachi-router benchmark --category code                    # Benchmark tok/s & latency across providers
-ijachi-router stats                                        # View spend & latency analytics
-ijachi-router budget status                                # Check monthly budget limit & spend
-ijachi-router budget set 20.0                              # Set hard USD spend cap (auto-fails over to Ollama)
+ijachi agent "Refactor main.py and run pytest"             # Autonomous workspace task
+ijachi swarm "Build auth API with FastAPI"                 # 4-Agent Swarm (Architect/Dev/Security/QA)
+ijachi fix --command "pytest"                              # Auto-fixing test repair loop
+ijachi consensus "Write lock-free queue in C++"           # Multi-model peer-review code
+ijachi index                                               # Index workspace code symbols
+ijachi doc                                                 # Auto-generate ARCHITECTURE.md + Mermaid diagrams
+ijachi commit                                              # Conventional Commit + Git checkpoint
 
 # ---------------------------------------------------------
 # KEYS & MODEL MANAGEMENT
 # ---------------------------------------------------------
-ijachi-router keys list                                    # List configured API keys (masked)
-ijachi-router keys set anthropic "sk-ant-..."              # Store key securely in ~/.ijachi-llmr/keys.env
-ijachi-router keys test                                    # Test live provider API connectivity
-ijachi-router models list                                  # List candidate models & pricing
-ijachi-router models add my-model openai --speed fast      # Add custom model definition
-ijachi-router export-sdk --lang typescript                 # Export client SDK (typescript | go | rust)
+ijachi keys list                                           # List configured API keys (masked)
+ijachi keys set anthropic "sk-ant-..."                     # Store key securely (~/.ijachi-llmr/keys.env)
+ijachi keys test                                           # Test live provider API connectivity
+ijachi models list                                         # List candidate models & pricing
+ijachi export-sdk --lang typescript                        # Export client SDK (typescript | go | rust)
 
 # ---------------------------------------------------------
 # SERVERS & DASHBOARD
 # ---------------------------------------------------------
-ijachi-code extension-server --port 8001                   # Start JSON-RPC/REST server for VS Code/IDEs
-ijachi-router serve --port 8000                            # Launch REST API server
-ijachi-router dashboard --port 8000                        # Open Web Telemetry Dashboard
+ijachi extension-server --port 8001                        # Start JSON-RPC/REST server for IDEs
+ijachi serve --port 8000                                   # Launch REST API server
+ijachi dashboard --port 8000                               # Open Web Telemetry Dashboard
 ```
 
 ---
 
-## Library usage
+## Library Usage
 
 ```python
 from ijachi_router import route, Router
-from ijachi_router.humanizer import humanize
-from ijachi_router.memory import ProjectMemory
 
 # One-shot route with auto-humanization and security scanning
-result = route("Explain quicksort in Python", humanize_mode="light")
+result = route("Write a Python binary search", humanize_mode="light")
 print(result.text)
 print(f"Model: {result.model}  Cost: ${result.cost_usd:.4f}  Latency: {result.latency_s:.2f}s")
-
-# Context-aware memory session
-mem = ProjectMemory(session_id="default")
-context = mem.get_compressed_context()
-res = route(f"{context}\nUser task: Add error handling")
-mem.add_turn("Add error handling", res.text, model=res.model)
 ```
 
 ---
 
-## 📦 Export Client SDKs (TypeScript, Go, Rust)
-
-Generate native client libraries for your backend services:
-
-```bash
-ijachi-router export-sdk --lang typescript  # Outputs ijachi-llm-router.ts
-ijachi-router export-sdk --lang go          # Outputs router.go
-ijachi-router export-sdk --lang rust        # Outputs lib.rs
-```
-
----
-
-## Project structure
+## Project Structure
 
 ```
 ijachi-llm-router/
-├── action.yml               # GitHub Action definition
-├── gh-router                # GitHub CLI extension executable
+├── pyproject.toml           # Package entrypoints (ijachi, ijachi-code, ijachi-router)
 ├── cli.py                  # CLI entry point (click)
 ├── models.yaml             # Model catalog — preconfigured matrix
-├── pyproject.toml           # Package config + dependencies
 ├── ijachi_router/
 │   ├── __init__.py          # Public API: route(), Router
 │   ├── agent.py             # Agentic workspace engine (write/edit gates)
@@ -242,20 +204,11 @@ ijachi-llm-router/
 │   ├── sdk_generator.py     # Native client SDK exporter (TS/Go/Rust)
 │   ├── streaming.py         # Real-time token streaming engine
 │   ├── swarm.py             # 4-Agent coding swarm (Architect/Dev/Security/QA)
+│   ├── ui.py                # Rich terminal UI & Cyberpunk banners
 │   ├── validator.py         # Zero-regression syntax code validator
-│   └── providers/           # 20 Provider implementations
-└── tests/                   # 92 unit tests (100% passing)
+│   └── wizard.py            # Interactive setup wizard & provider table
+└── tests/                   # 98 unit tests (100% passing)
 ```
-
----
-
-## 💖 Support & Sponsorship
-
-If `ijachi-llm-router` saved you money or time, consider supporting its ongoing development!
-
-[![Paystack](https://img.shields.io/badge/Support-Paystack-09A5DB?style=for-the-badge&logo=paystack&logoColor=white)](https://paystack.shop/pay/enlqpvzflw)
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ijachi)
-[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sponsors/ijachi)
 
 ---
 
