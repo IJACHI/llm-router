@@ -1,42 +1,57 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Global Installer Script for ijachi & ijachi-code
-# Automatically sets up Python virtualenv, installs package, registers global
-# shortcuts (ijachi, ijachi-code, ijachi-router), and configures shell PATH.
+# Global One-Line Installer Script for ijachi & ijachi-code
+# Works both locally and remotely via:
+# curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/install.sh | bash
 # ==============================================================================
 
 set -e
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="$HOME/.ijachi-app"
 BIN_DIR="$HOME/.local/bin"
+REPO_URL="https://github.com/IJACHI/llm-router.git"
 
-echo "🚀 Installing ijachi-llm-router & ijachi-code globally..."
+echo "🚀 Installing ijachi & ijachi-code globally..."
 
-# 1. Ensure ~/.local/bin exists
 mkdir -p "$BIN_DIR"
 
-# 2. Setup Virtualenv if missing
-if [ ! -d "$REPO_DIR/.venv" ]; then
-    echo "📦 Creating virtual environment..."
-    python3 -m venv "$REPO_DIR/.venv"
+# 1. Determine if running locally inside repo or via curl remote pipe
+if [ -f "pyproject.toml" ] && [ -d "ijachi_router" ]; then
+    TARGET_DIR="$(pwd)"
+else
+    TARGET_DIR="$INSTALL_DIR"
+    if [ -d "$TARGET_DIR" ]; then
+        echo "🔄 Updating existing installation in $TARGET_DIR..."
+        git -C "$TARGET_DIR" pull --rebase origin main || true
+    else
+        echo "📥 Downloading ijachi codebase..."
+        git clone "$REPO_URL" "$TARGET_DIR"
+    fi
 fi
 
-# 3. Install package editable
-echo "⚙️ Installing package dependencies..."
-"$REPO_DIR/.venv/bin/pip" install -e "$REPO_DIR"
+# 2. Setup Virtualenv
+if [ ! -d "$TARGET_DIR/.venv" ]; then
+    echo "📦 Creating virtual environment..."
+    python3 -m venv "$TARGET_DIR/.venv"
+fi
 
-# 4. Symlink global executables
+# 3. Upgrade pip and install package
+echo "⚙️ Installing dependencies..."
+"$TARGET_DIR/.venv/bin/pip" install --quiet --upgrade pip
+"$TARGET_DIR/.venv/bin/pip" install --quiet -e "$TARGET_DIR"
+
+# 4. Symlink global shortcut executables to ~/.local/bin
 echo "🔗 Registering global shortcut binaries in $BIN_DIR..."
 for cmd in ijachi ijachi-code ijachi-router ijr; do
-    if [ -f "$REPO_DIR/.venv/bin/$cmd" ]; then
-        ln -sf "$REPO_DIR/.venv/bin/$cmd" "$BIN_DIR/$cmd"
+    if [ -f "$TARGET_DIR/.venv/bin/$cmd" ]; then
+        ln -sf "$TARGET_DIR/.venv/bin/$cmd" "$BIN_DIR/$cmd"
         echo "   ✓ $cmd -> $BIN_DIR/$cmd"
     fi
 done
 
-# 5. Configure Shell PATH in ~/.zshrc and ~/.bashrc
-SHELL_CONFIGS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile")
+# 5. Configure Shell PATH in ~/.zshrc, ~/.bashrc, ~/.profile
 PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+SHELL_CONFIGS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile")
 
 for cfg in "${SHELL_CONFIGS[@]}"; do
     if [ -f "$cfg" ]; then
@@ -52,5 +67,5 @@ done
 echo ""
 echo "=============================================================================="
 echo "🎉 SUCCESS! ijachi & ijachi-code are now globally installed!"
-echo "Type 'ijachi' or 'ijachi-code' in any terminal window to launch."
+echo "Open a new terminal tab or run 'source ~/.zshrc', then type 'ijachi'."
 echo "=============================================================================="
