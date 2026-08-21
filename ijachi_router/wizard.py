@@ -57,6 +57,7 @@ class LauncherWizard:
             }
         return status
 
+    @staticmethod
     def print_welcome_table() -> None:
         """Render clean terminal table of all compatible providers and key status."""
         from rich.table import Table

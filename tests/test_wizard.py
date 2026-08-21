@@ -19,5 +19,6 @@ def test_launcher_wizard_status():
 
 
 def test_print_welcome_table():
-    # Verify table printing executes cleanly
+    # Verify both static and instance calls execute cleanly
     LauncherWizard.print_welcome_table()
+    LauncherWizard().print_welcome_table()
