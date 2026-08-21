@@ -46,9 +46,14 @@ def main(ctx):
     """ijachi-llm-router: one prompt, best model, automatic fallback."""
     if ctx.invoked_subcommand is None:
         from ijachi_router.wizard import LauncherWizard
+        from ijachi_router.providers.base import ProviderError
         wizard = LauncherWizard()
         wizard.run_interactive_setup()
-        ctx.invoke(chat_cmd)
+        try:
+            ctx.invoke(chat_cmd)
+        except ProviderError as exc:
+            click.echo(click.style(f"\n✗ Provider error: {exc}", fg="red"))
+            click.echo(click.style("  Run 'ijachi keys set <provider> <key>' to configure a provider, then try again.", fg="yellow"))
 
 
 @main.command(name="setup")
@@ -211,22 +216,43 @@ def agent_cmd(task, priority, max_steps, no_approval):
 def chat_cmd(priority):
     """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
     from ijachi_router.agent import AgenticRouter
+    from ijachi_router.providers.base import ProviderError
+
+    # Reload saved API keys so any keys set in the wizard are active in this session
+    try:
+        from ijachi_router.key_manager import KeyManager
+        KeyManager().load_keys_into_env()
+    except Exception:
+        pass
 
     agent = AgenticRouter(priority=priority, require_approval=True)
     click.echo(click.style("💬 ijachi-code Interactive Agentic REPL Session", fg="cyan", bold=True))
-    click.echo("Type your workspace coding prompt or 'exit' / 'quit' to end.\n")
+    click.echo(click.style("Type your prompt and press Enter. Type 'exit' or 'quit' to end the session.", fg="bright_black"))
+    click.echo()
 
     while True:
         try:
             user_input = click.prompt("ijachi-code>", type=str)
-            if user_input.strip().lower() in {"exit", "quit", "q"}:
-                click.echo("Goodbye!")
+            if user_input.strip().lower() in {"exit", "quit", "q", ":q"}:
+                click.echo(click.style("👋 Goodbye! Session ended.", fg="cyan"))
                 break
+            if not user_input.strip():
+                continue
             result = agent.run(user_input)
             click.echo("\n" + result.final_text + "\n")
+        except ProviderError as exc:
+            click.echo(click.style(f"\n✗ Provider error: {exc}", fg="red"))
+            click.echo(click.style(
+                "  Tip: Run 'ijachi keys set <provider> <key>' to configure a provider,\n"
+                "  or 'ijachi providers' to check which providers are currently active.",
+                fg="yellow",
+            ))
         except (KeyboardInterrupt, EOFError):
-            click.echo("\nSession ended.")
+            click.echo(click.style("\n👋 Session ended.", fg="cyan"))
             break
+        except Exception as exc:  # noqa: BLE001
+            click.echo(click.style(f"\n✗ Unexpected error: {exc}", fg="red"))
+            click.echo(click.style("  Type 'exit' to quit or try a different prompt.", fg="yellow"))
 
 
 @main.command(name="fix")

@@ -17,16 +17,19 @@ class GeminiProvider(Provider):
                 "openai package not installed (required for Gemini API compatibility). Run: pip install openai"
             ) from e
 
-        client = openai.OpenAI(
-            api_key=api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        )
-        resp = client.chat.completions.create(
-            model=self.model_id,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=kwargs.get("max_tokens", 1024),
-        )
-        text = resp.choices[0].message.content or ""
-        in_tokens = resp.usage.prompt_tokens if resp.usage else 0
-        out_tokens = resp.usage.completion_tokens if resp.usage else 0
-        return text, in_tokens, out_tokens
+        try:
+            client = openai.OpenAI(
+                api_key=api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            )
+            resp = client.chat.completions.create(
+                model=self.model_id,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=kwargs.get("max_tokens", 1024),
+            )
+            text = resp.choices[0].message.content or ""
+            in_tokens = resp.usage.prompt_tokens if resp.usage else 0
+            out_tokens = resp.usage.completion_tokens if resp.usage else 0
+            return text, in_tokens, out_tokens
+        except Exception as err:
+            raise ProviderError(f"Gemini API call failed for model '{self.model_id}': {err}") from err

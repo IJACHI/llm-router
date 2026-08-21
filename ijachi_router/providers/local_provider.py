@@ -11,7 +11,10 @@ class LocalProvider(Provider):
     name = "local"
 
     def _call(self, prompt: str, **kwargs) -> tuple[str, int, int]:
+        # Retrieve Ollama host; ensure it includes a URL scheme.
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        if not host.startswith(("http://", "https://")):
+            host = f"http://{host}"
         try:
             resp = requests.post(
                 f"{host}/api/generate",

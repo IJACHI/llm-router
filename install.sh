@@ -48,8 +48,10 @@ fi
 
 # 3. Upgrade pip and install package (suppressing warnings & cache)
 echo "⚙️ Installing dependencies..."
-PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --no-warn-script-location --upgrade pip >/dev/null 2>&1 || true
-PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --no-warn-script-location -e "$TARGET_DIR" >/dev/null 2>&1 || true
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --no-warn-script-location --upgrade pip > /dev/null 2>&1 || true
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --no-warn-script-location -e "$TARGET_DIR" > /dev/null 2>&1 || true
+# Always ensure core provider dependencies are present
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --no-warn-script-location "openai>=1.0" "anthropic>=0.25" > /dev/null 2>&1 || true
 
 # 4. Symlink global shortcut executables to active system PATH directory
 echo "🔗 Registering global shortcut binaries in $TARGET_BIN..."

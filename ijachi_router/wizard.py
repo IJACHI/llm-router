@@ -86,8 +86,19 @@ class LauncherWizard:
         """Interactive setup flow for selecting providers and entering API keys."""
         self.print_welcome_table()
 
-        if not Confirm.ask("Would you like to configure or add provider API keys now?", default=True):
-            console.print("[green]✓ Ready to proceed with existing active providers.[/green]")
+        # Check whether any remote provider is already configured
+        status = self.get_provider_status()
+        remote_active = [p for p, info in status.items() if p != "local" and info["active"]]
+
+        if not Confirm.ask("Would you like to configure or add provider API keys now?", default=not bool(remote_active)):
+            if remote_active:
+                console.print(f"[green]✓ Ready to proceed with active providers: {', '.join(remote_active)}[/green]")
+            else:
+                console.print(
+                    "\n[bold yellow]⚠ No remote providers configured.[/bold yellow]\n"
+                    "  You can still use the [bold]local[/bold] Ollama provider (if running).\n"
+                    "  To add a provider key later, run: [bold cyan]ijachi keys set <provider> <key>[/bold cyan]\n"
+                )
             return
 
         while True:
@@ -101,6 +112,10 @@ class LauncherWizard:
                 console.print(f"[bold red]Unknown provider '{provider}'.[/bold red] Choose from: {', '.join(list(_PROVIDER_ENV_VARS.keys())[:8])}")
                 continue
 
+            if provider == "local":
+                console.print("[dim]Local Ollama provider needs no API key — it's always available when Ollama is running.[/dim]")
+                continue
+
             existing_key = self.km.get_key(provider)
             if existing_key:
                 console.print(f"Existing key found for [cyan]{provider}[/cyan]: [dim]{existing_key[:6]}***[/dim]")
@@ -110,6 +125,11 @@ class LauncherWizard:
             key_val = Prompt.ask(f"Enter API key for [cyan]{provider}[/cyan]", password=True)
             if key_val.strip():
                 msg = self.km.set_key(provider, key_val.strip())
+                # Immediately activate key in current process environment
+                self.km.load_keys_into_env()
                 console.print(f"[bold green]✓ {msg}[/bold green]")
 
+        # Reload all saved keys so they're active in this process for the chat session
+        self.km.load_keys_into_env()
         console.print("\n[bold green]✓ Key configuration complete! All selected providers are active for your session.[/bold green]\n")
+
