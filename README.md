@@ -53,6 +53,31 @@ pip install ijachi-llm-router
 
 ---
 
+## 🔄 Uninstall & Reinstall Guide
+
+### How to Uninstall Completely:
+To remove `ijachi`, its global shortcut binaries, and installation directories:
+
+```bash
+# Method A: One-line remote uninstaller
+curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/uninstall.sh | bash
+
+# Method B: Local repo uninstaller
+./uninstall.sh
+
+# Method C: Standard pip uninstall
+pip uninstall -y ijachi-llm-router
+```
+
+### How to Reinstall:
+To reinstall anytime after uninstalling:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/install.sh | bash
+```
+
+---
+
 ## 🚀 Launching `ijachi`
 
 Once installed, simply type **`ijachi`** in any terminal window in any folder:
@@ -191,6 +216,7 @@ print(f"Model: {result.model}  Cost: ${result.cost_usd:.4f}  Latency: {result.la
 ```
 ijachi-llm-router/
 ├── install.sh               # One-line remote curl installer script
+├── uninstall.sh             # One-line remote curl uninstaller script
 ├── pyproject.toml           # Package entrypoints (ijachi, ijachi-code, ijachi-router)
 ├── cli.py                  # CLI entry point (click)
 ├── models.yaml             # Model catalog — preconfigured matrix
