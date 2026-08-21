@@ -149,15 +149,19 @@ class Router:
         """Reload config from disk (useful after editing models.yaml)."""
         self.config = load_config()
 
-    def route(self, prompt: str, humanize_mode: str = "light", **kwargs) -> GenerationResult:
+    def route(self, prompt: str, humanize_mode: str = "light", _classify_as: str | None = None, **kwargs) -> GenerationResult:
         """Route *prompt* to the best available model and return the result.
 
         Args:
-            prompt: The raw user prompt.
+            prompt: The raw user prompt (full context sent to the LLM).
             humanize_mode: ``'light'`` (default), ``'full'``, or ``'off'``.
                 - ``light``: Strip AI openers, closers, attribution watermarks, typography artifacts.
                 - ``full``: All of light + code boilerplate comments + prose hedging.
                 - ``off``: Return raw LLM output unchanged.
+            _classify_as: Optional short text used *only* for classification/routing
+                (e.g. the bare user task). If None, ``prompt`` is used for classification.
+                Use this when ``prompt`` contains a large system prefix that would
+                skew the classifier away from the user's actual intent.
             **kwargs: Forwarded to the provider (e.g. ``max_tokens``).
 
         Returns:
@@ -167,9 +171,10 @@ class Router:
             ProviderError: If every candidate model fails.
             RuntimeError:  If no models are available (no API keys configured).
         """
-        # 1. Classify
-        category, confidence = predict_category(prompt)
-        cx = complexity_score(prompt)
+        # 1. Classify — use _classify_as if provided, else fall back to full prompt
+        classify_text = _classify_as if _classify_as else prompt
+        category, confidence = predict_category(classify_text)
+        cx = complexity_score(classify_text)
 
         # 2. Rank candidates
         ranked = _rank_models(self.config, category, cx)
@@ -221,6 +226,6 @@ class Router:
 # Module-level convenience
 # ---------------------------------------------------------------------------
 
-def route(prompt: str, humanize_mode: str = "light", **kwargs) -> GenerationResult:
-    """Convenience function: ``Router().route(prompt, humanize_mode=...)``."""  
-    return Router().route(prompt, humanize_mode=humanize_mode, **kwargs)
+def route(prompt: str, humanize_mode: str = "light", _classify_as: str | None = None, **kwargs) -> GenerationResult:
+    """Convenience function: ``Router().route(prompt, ...)``."""  
+    return Router().route(prompt, humanize_mode=humanize_mode, _classify_as=_classify_as, **kwargs)

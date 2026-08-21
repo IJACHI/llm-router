@@ -173,23 +173,23 @@ models:
   # ── Google Gemini ──────────────────────────────────────────────────────────
   - provider: gemini
     model_id: gemini-2.5-flash
-    tags: [simple-qa, summarization, creative, long-context]
+    tags: [simple-qa, summarization, creative, long-context, code, reasoning, math]
     input_per_1k: 0.000075
     output_per_1k: 0.0003
     max_context: 1000000
     speed_tier: fast
 
   - provider: gemini
-    model_id: gemini-2.5-pro
-    tags: [code, reasoning, math, long-context, creative]
-    input_per_1k: 0.00125
-    output_per_1k: 0.005
-    max_context: 2000000
-    speed_tier: medium
+    model_id: gemini-2.5-flash-lite
+    tags: [simple-qa, summarization, creative]
+    input_per_1k: 0.000015
+    output_per_1k: 0.00006
+    max_context: 1000000
+    speed_tier: fast
 
   - provider: gemini
     model_id: gemini-3.1-pro-preview
-    tags: [code, reasoning, math]
+    tags: [code, reasoning, math, long-context]
     input_per_1k: 0.00250
     output_per_1k: 0.010
     max_context: 1000000

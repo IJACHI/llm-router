@@ -286,8 +286,9 @@ class AgenticRouter:
         for step_idx in range(1, max_steps + 1):
             console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
 
-            # Route prompt to optimal model
-            res = route(prompt=current_prompt, priority=self.priority)
+            # Route: classify only the *task* text for model selection,
+            # but send the full conversation context as the actual prompt.
+            res = route(prompt=current_prompt, priority=self.priority, _classify_as=task)
             total_cost += res.cost_usd
 
             response_text = res.text.strip()
