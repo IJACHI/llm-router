@@ -555,6 +555,15 @@ def license_remove():
     click.echo(click.style("✓ License key removed. Reset to Free Tier.", fg="yellow"))
 
 
+@main.command(name="update")
+def update_cmd():
+    """[UPDATE] Auto-update ijachi to the latest version."""
+    from ijachi_router.updater import update_ijachi
+
+    msg = update_ijachi()
+    click.echo(click.style(f"✓ {msg}", fg="green", bold=True))
+
+
 def code_main():
     """Standalone ijachi-code CLI entrypoint tuned specifically for coding tasks."""
     import sys
@@ -562,7 +571,7 @@ def code_main():
         "route", "stats", "providers", "provider", "update-catalog", "train",
         "serve", "dashboard", "license", "setup", "launcher", "export-sdk",
         "models", "keys", "agent", "chat", "swarm", "fix", "consensus",
-        "index", "doc", "commit", "benchmark", "budget", "extension-server"
+        "index", "doc", "commit", "benchmark", "budget", "extension-server", "update"
     }
     args = sys.argv[1:]
     if args and not args[0].startswith("-") and args[0] not in known_commands:
