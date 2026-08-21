@@ -37,8 +37,8 @@ fi
 
 # 3. Upgrade pip and install package
 echo "⚙️ Installing dependencies..."
-"$TARGET_DIR/.venv/bin/pip" install --quiet --upgrade pip
-"$TARGET_DIR/.venv/bin/pip" install --quiet -e "$TARGET_DIR"
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --upgrade pip
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir -e "$TARGET_DIR"
 
 # 4. Symlink global shortcut executables to ~/.local/bin
 echo "🔗 Registering global shortcut binaries in $BIN_DIR..."
