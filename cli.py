@@ -48,6 +48,7 @@ def main(ctx):
         from ijachi_router.wizard import LauncherWizard
         wizard = LauncherWizard()
         wizard.run_interactive_setup()
+        ctx.invoke(chat_cmd)
 
 
 @main.command(name="setup")
