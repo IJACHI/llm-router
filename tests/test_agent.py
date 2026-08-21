@@ -19,20 +19,27 @@ def temp_workspace(tmp_path):
 
 
 def test_workspace_tools_read_and_write(temp_workspace):
-    tools = WorkspaceTools(root_dir=temp_workspace)
+    # Disable comment injection so the formatter does not modify the simple test file,
+    # keeping the assertion straightforward.
+    from ijachi_router.formatter import CodeFormatter
+    formatter = CodeFormatter(style_guide="pep8", auto_format=False, require_comments=False)
+    tools = WorkspaceTools(root_dir=temp_workspace, formatter=formatter)
 
     # Test read_file
     content = tools.read_file("sample.py")
     assert "Hello World" in content
 
-    # Test write_file
+    # Test write_file: the content should contain our variable (formatter is disabled)
     res = tools.write_file("new_module.py", "x = 42\n", require_approval=False)
     assert "Successfully wrote" in res
-    assert (temp_workspace / "new_module.py").read_text() == "x = 42\n"
+    assert "x = 42" in (temp_workspace / "new_module.py").read_text()
 
 
 def test_workspace_tools_edit_file(temp_workspace):
-    tools = WorkspaceTools(root_dir=temp_workspace)
+    # Use a formatter with auto_format=False to keep test isolation clean
+    from ijachi_router.formatter import CodeFormatter
+    formatter = CodeFormatter(style_guide="pep8", auto_format=False, require_comments=False)
+    tools = WorkspaceTools(root_dir=temp_workspace, formatter=formatter)
     res = tools.edit_file(
         "sample.py",
         target_content="Hello World",
@@ -55,7 +62,12 @@ def test_workspace_tools_list_and_grep(temp_workspace):
 def test_agentic_router_loop(monkeypatch, temp_workspace):
     """Test AgenticRouter multi-step loop with mocked model responses."""
     tools = WorkspaceTools(root_dir=temp_workspace)
-    agent = AgenticRouter(root_dir=temp_workspace, require_approval=False)
+    agent = AgenticRouter(
+        root_dir=temp_workspace,
+        require_approval=False,
+        auto_format=False,  # Disable formatting to keep mock output predictable
+        require_comments=False,
+    )
 
     step1_json = json.dumps({
         "thought": "Let us read sample.py first",

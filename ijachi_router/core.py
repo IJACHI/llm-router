@@ -149,39 +149,49 @@ class Router:
         """Reload config from disk (useful after editing models.yaml)."""
         self.config = load_config()
 
-    def route(self, prompt: str, humanize_mode: str = "light", _classify_as: str | None = None, **kwargs) -> GenerationResult:
+    def route(
+        self,
+        prompt: str,
+        humanize_mode: str = "light",
+        _classify_as: str | None = None,
+        priority: str | None = None,
+        force_model: str | None = None,
+        **kwargs,
+    ) -> GenerationResult:
         """Route *prompt* to the best available model and return the result.
 
         Args:
             prompt: The raw user prompt (full context sent to the LLM).
             humanize_mode: ``'light'`` (default), ``'full'``, or ``'off'``.
-                - ``light``: Strip AI openers, closers, attribution watermarks, typography artifacts.
-                - ``full``: All of light + code boilerplate comments + prose hedging.
-                - ``off``: Return raw LLM output unchanged.
-            _classify_as: Optional short text used *only* for classification/routing
-                (e.g. the bare user task). If None, ``prompt`` is used for classification.
-                Use this when ``prompt`` contains a large system prefix that would
-                skew the classifier away from the user's actual intent.
-            **kwargs: Forwarded to the provider (e.g. ``max_tokens``).
-
-        Returns:
-            GenerationResult with text, model, cost, latency, token counts.
-
-        Raises:
-            ProviderError: If every candidate model fails.
-            RuntimeError:  If no models are available (no API keys configured).
+            _classify_as: Optional short text used *only* for classification/routing.
+            priority: Optional override for routing priority (cost, speed, quality, balanced).
+            force_model: Optional specific model_id to pin and use directly.
+            **kwargs: Forwarded to the provider.
         """
-        # 1. Classify — use _classify_as if provided, else fall back to full prompt
-        classify_text = _classify_as if _classify_as else prompt
-        category, confidence = predict_category(classify_text)
-        cx = complexity_score(classify_text)
+        # 0. If a specific model is forced, locate and rank it first
+        if force_model:
+            matching = [m for m in self.config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
+            if matching:
+                ranked = matching
+            else:
+                ranked = list(self.config.available_models())
+        else:
+            # 1. Classify — use _classify_as if provided, else fall back to full prompt
+            classify_text = _classify_as if _classify_as else prompt
+            category, confidence = predict_category(classify_text)
+            cx = complexity_score(classify_text)
 
-        # 2. Rank candidates
-        ranked = _rank_models(self.config, category, cx)
+            # 2. Rank candidates with optional priority override
+            effective_config = self.config
+            if priority:
+                from dataclasses import replace as dc_replace
+                effective_config = dc_replace(self.config, priority=priority)
 
-        if not ranked:
-            # Fallback: try all available models regardless of category
-            ranked = list(self.config.available_models())
+            ranked = _rank_models(effective_config, category, cx)
+
+            if not ranked:
+                # Fallback: try all available models regardless of category
+                ranked = list(self.config.available_models())
 
         if not ranked:
             raise ProviderError(
@@ -193,6 +203,7 @@ class Router:
 
         # 3. Optimize prompt for the top candidate
         top_model = ranked[0]
+        category = category if not force_model else "code"
         optimized = optimize_prompt(prompt, top_model.provider, category)
 
         # 4. Build provider instances
@@ -226,6 +237,20 @@ class Router:
 # Module-level convenience
 # ---------------------------------------------------------------------------
 
-def route(prompt: str, humanize_mode: str = "light", _classify_as: str | None = None, **kwargs) -> GenerationResult:
-    """Convenience function: ``Router().route(prompt, ...)``."""  
-    return Router().route(prompt, humanize_mode=humanize_mode, _classify_as=_classify_as, **kwargs)
+def route(
+    prompt: str,
+    humanize_mode: str = "light",
+    _classify_as: str | None = None,
+    priority: str | None = None,
+    force_model: str | None = None,
+    **kwargs,
+) -> GenerationResult:
+    """Convenience function: ``Router().route(prompt, ...)``."""
+    return Router().route(
+        prompt,
+        humanize_mode=humanize_mode,
+        _classify_as=_classify_as,
+        priority=priority,
+        force_model=force_model,
+        **kwargs,
+    )

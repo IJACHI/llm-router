@@ -11,6 +11,8 @@ Commands
   ijachi-router serve              [PRO] Launch REST API gateway & dashboard.
   ijachi-router dashboard          [PRO] Open web telemetry dashboard in browser.
   ijachi-router license            Manage Pro license keys.
+  ijachi-router skills             [SKILLS] List, run, and install skills.
+  ijachi-router theme <name>       Switch the active UI theme.
 """
 
 from __future__ import annotations
@@ -197,14 +199,34 @@ def train():
 @main.command(name="agent")
 @click.argument("task")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
+@click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, claude-3-5-sonnet).")
 @click.option("--max-steps", "-s", type=int, default=10, help="Maximum tool iteration steps.")
 @click.option("--no-approval", is_flag=True, help="Auto-approve file changes and shell commands.")
-def agent_cmd(task, priority, max_steps, no_approval):
+@click.option("--style", default=None, help="Code style guide (pep8, black, google, prettier, airbnb).")
+@click.option("--accessibility", "-a", is_flag=True, help="Screen-reader accessibility mode.")
+def agent_cmd(task, priority, model, max_steps, no_approval, style, accessibility):
     """[AGENTIC] Run an autonomous workspace file editing task."""
     from ijachi_router.agent import AgenticRouter
+    from ijachi_router.config import load_config
 
-    agent = AgenticRouter(priority=priority, require_approval=not no_approval)
-    click.echo(click.style(f"🚀 Starting autonomous agentic workspace task: {task}", fg="cyan"))
+    cfg = load_config()
+    style_guide = style or cfg.style_guide
+    acc = accessibility or cfg.accessibility
+
+    agent = AgenticRouter(
+        priority=priority,
+        require_approval=not no_approval,
+        style_guide=style_guide,
+        auto_format=cfg.auto_format,
+        require_comments=cfg.require_comments,
+        accessible=acc,
+        force_model=model,
+    )
+    if acc:
+        print(f"ijachi: Starting autonomous task: {task}")
+    else:
+        model_str = f" [model: {model}]" if model else f" [priority: {priority}]"
+        click.echo(click.style(f"🚀 Starting autonomous agentic workspace task{model_str}: {task}", fg="cyan"))
     result = agent.run(task, max_steps=max_steps)
     click.echo("\n" + click.style("=== Task Result ===", fg="green", bold=True))
     click.echo(result.final_text)
@@ -213,46 +235,308 @@ def agent_cmd(task, priority, max_steps, no_approval):
 
 @main.command(name="chat")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
-def chat_cmd(priority):
+@click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, claude-3-5-sonnet).")
+@click.option("--style", default=None, help="Code style guide (pep8, black, google, prettier, airbnb).")
+@click.option("--accessibility", "-a", is_flag=True, help="Screen-reader accessibility mode (sequential labeled output).")
+@click.option("--theme", default=None, help="UI theme: dark, light, ansi, accessible, auto.")
+@click.option("--vim", is_flag=True, default=False, help="Enable Vim editing mode in the prompt.")
+def chat_cmd(priority, model, style, accessibility, theme, vim):
     """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
     from ijachi_router.agent import AgenticRouter
+    from ijachi_router.config import load_config
     from ijachi_router.providers.base import ProviderError
+    from ijachi_router.transcript import Transcript
+    from ijachi_router.ui import set_theme, cycle_permission_mode
+    from ijachi_router.skill_manager import SkillManager
 
-    # Reload saved API keys so any keys set in the wizard are active in this session
+    # Load persisted config and apply CLI overrides
+    cfg = load_config()
+    style_guide = style or cfg.style_guide
+    acc = accessibility or cfg.accessibility
+    active_theme = theme or cfg.theme
+    vim_mode = vim or cfg.vim_mode
+
+    # Apply theme
+    applied_theme = set_theme(active_theme)
+
+    # Reload saved API keys
     try:
         from ijachi_router.key_manager import KeyManager
         KeyManager().load_keys_into_env()
     except Exception:
         pass
 
-    agent = AgenticRouter(priority=priority, require_approval=True)
-    click.echo(click.style("💬 ijachi-code Interactive Agentic REPL Session", fg="cyan", bold=True))
-    click.echo(click.style("Type your prompt and press Enter. Type 'exit' or 'quit' to end the session.", fg="bright_black"))
-    click.echo()
+    agent = AgenticRouter(
+        priority=priority,
+        require_approval=True,
+        style_guide=style_guide,
+        auto_format=cfg.auto_format,
+        require_comments=cfg.require_comments,
+        accessible=acc,
+        force_model=model,
+    )
+
+    # Session transcript
+    transcript = Transcript(session_id="chat")
+
+    # Permission mode (cycled with /mode or Shift+Tab)
+    permission_mode = "manual"
+
+    # Skill manager for '/skills' slash command
+    skill_manager = SkillManager(workspace_root=agent.tools.root_dir)
+
+    # Prompt engine callbacks
+    def _open_transcript():
+        transcript.view()
+
+    def _toggle_checklist():
+        agent.checklist.render()
+
+    def _rewind():
+        click.echo(click.style("\n⏪ Rewind: no checkpoint available in this session.", fg="yellow"))
+
+    # Build PromptEngine (falls back to input() if prompt_toolkit not installed)
+    try:
+        from ijachi_router.prompt_engine import PromptEngine
+        engine = PromptEngine(
+            workspace_root=agent.tools.root_dir,
+            model=model or f"auto ({priority})",
+            vim_mode=vim_mode,
+            permission_mode=permission_mode,
+            on_transcript_open=_open_transcript,
+            on_checklist_toggle=_toggle_checklist,
+            on_rewind=_rewind,
+            skill_names=[s.name for s in skill_manager.list_skills()],
+        )
+    except Exception:
+        engine = None  # Fallback to plain input()
+
+    # Session header
+    if acc:
+        print("ijachi: Interactive session started. Type 'exit' to quit.")
+    else:
+        click.echo(click.style("💬 ijachi-code Interactive Agentic REPL Session", fg="cyan", bold=True))
+        click.echo(click.style(
+            f"Model: {model or f'auto ({priority})'}  Theme: {applied_theme}  Style: {style_guide}  Mode: {permission_mode}\n"
+            "/model=switch model  /priority=change routing  Ctrl+O=transcript  ?=help  exit=quit",
+            fg="bright_black",
+        ))
+        click.echo()
+
+    session_cost = 0.0
 
     while True:
         try:
-            user_input = click.prompt("ijachi-code>", type=str)
-            if user_input.strip().lower() in {"exit", "quit", "q", ":q"}:
-                click.echo(click.style("👋 Goodbye! Session ended.", fg="cyan"))
+            # Get input via PromptEngine or plain input()
+            if engine:
+                user_input = engine.prompt(
+                    "ijachi-code> ",
+                    cost_usd=session_cost,
+                )
+                if user_input is None:
+                    # None = Ctrl+C or shell command handled inline
+                    continue
+                # Expand any pasted text placeholders
+                user_input = engine.resolve_pastes(user_input)
+            else:
+                try:
+                    user_input = input("ijachi-code> ")
+                except (KeyboardInterrupt, EOFError):
+                    user_input = None
+
+            if user_input is None:
+                if acc:
+                    print("ijachi: Session ended.")
+                else:
+                    click.echo(click.style("\n👋 Session ended.", fg="cyan"))
                 break
-            if not user_input.strip():
+
+            stripped = user_input.strip()
+            if not stripped:
                 continue
-            result = agent.run(user_input)
-            click.echo("\n" + result.final_text + "\n")
+
+            # exit/quit
+            if stripped.lower() in {"exit", "quit", "q", ":q"}:
+                if acc:
+                    print("ijachi: Goodbye! Session ended.")
+                else:
+                    click.echo(click.style("👋 Goodbye! Session ended.", fg="cyan"))
+                break
+
+            # --- Slash command handling ---
+            if stripped.startswith("/"):
+                parts = stripped[1:].split(None, 1)
+                cmd = parts[0].lower() if parts else ""
+                arg = parts[1] if len(parts) > 1 else ""
+
+                if cmd in ("model", "models"):
+                    if not arg or arg in ("list", "ls"):
+                        # Show available models
+                        click.echo(click.style("\n🤖 Available Models & Providers:", fg="cyan", bold=True))
+                        current_status = agent.force_model or f"auto ({agent.priority})"
+                        click.echo(f"  Current Active: {current_status}\n")
+                        for m in cfg.available_models():
+                            click.echo(f"  • {m.model_id:<32} [{m.provider}] in:${m.input_per_1k}/1k out:${m.output_per_1k}/1k tags={','.join(m.tags[:3])}")
+                        click.echo("\n  Usage: /model <model_name> (e.g. /model gpt-4o) or /model auto\n")
+                    elif arg.lower() in ("auto", "default", "reset"):
+                        agent.set_model(None)
+                        if engine:
+                            engine.model = f"auto ({agent.priority})"
+                        click.echo(click.style(f"✓ Model reset to dynamic auto-routing ({agent.priority}).", fg="green"))
+                    else:
+                        agent.set_model(arg)
+                        if engine:
+                            engine.model = arg
+                        click.echo(click.style(f"✓ Model switched to '{arg}'.", fg="green"))
+
+                elif cmd in ("priority", "p"):
+                    if arg.lower() in ("cost", "speed", "quality", "balanced"):
+                        agent.set_priority(arg.lower())
+                        if engine:
+                            engine.model = f"auto ({arg.lower()})"
+                        click.echo(click.style(f"✓ Routing priority set to '{arg.lower()}'.", fg="green"))
+                    else:
+                        click.echo("Usage: /priority <cost|speed|quality|balanced>")
+
+                elif cmd == "theme":
+                    from ijachi_router.ui import set_theme, list_themes
+                    if arg in list_themes() or arg == "auto":
+                        applied = set_theme(arg)
+                        click.echo(click.style(f"✓ Theme set to '{applied}'.", fg="green"))
+                    else:
+                        click.echo(f"Available themes: {', '.join(list_themes())}")
+
+                elif cmd == "tasks":
+                    agent.checklist.render()
+
+                elif cmd in ("skills", "skill"):
+                    skill_manager.print_skills_table()
+
+                elif cmd == "config":
+                    cfg_parts = arg.split(None, 1)
+                    if len(cfg_parts) == 2:
+                        _handle_config_set(cfg_parts[0], cfg_parts[1])
+                    else:
+                        _print_config(cfg)
+
+                elif cmd in ("help", "?"):
+                    from ijachi_router.prompt_engine import _HELP_TEXT
+                    print(_HELP_TEXT)
+
+                elif cmd == "mode":
+                    permission_mode = cycle_permission_mode(permission_mode)
+                    if engine:
+                        engine.set_permission_mode(permission_mode)
+                    from ijachi_router.ui import get_permission_mode_label
+                    click.echo(click.style(
+                        f"✓ Permission mode: {get_permission_mode_label(permission_mode)}",
+                        fg="cyan",
+                    ))
+                else:
+                    click.echo(click.style(f"Unknown command: /{cmd}. Type /help for commands.", fg="yellow"))
+                continue
+            # --- End slash commands ---
+
+            # Record user turn in transcript
+            transcript.add_user_turn(stripped)
+
+            result = agent.run(stripped)
+            session_cost += result.total_cost_usd
+
+            if engine:
+                engine.update_cost(result.total_cost_usd)
+
+            # Record assistant turn in transcript
+            transcript.add_assistant_turn(
+                content=result.final_text,
+                model=result.steps[-1].model_used if result.steps else "",
+                provider=result.steps[-1].provider if result.steps else "",
+                cost_usd=result.total_cost_usd,
+            )
+
+            if acc:
+                print(f"ijachi: {result.final_text}")
+            else:
+                click.echo("\n" + result.final_text + "\n")
+
         except ProviderError as exc:
-            click.echo(click.style(f"\n✗ Provider error: {exc}", fg="red"))
-            click.echo(click.style(
-                "  Tip: Run 'ijachi keys set <provider> <key>' to configure a provider,\n"
-                "  or 'ijachi providers' to check which providers are currently active.",
-                fg="yellow",
-            ))
+            if acc:
+                print(f"tool_error: Provider error: {exc}")
+            else:
+                click.echo(click.style(f"\n✗ Provider error: {exc}", fg="red"))
+                click.echo(click.style(
+                    "  Tip: Run 'ijachi keys set <provider> <key>' to configure a provider,\n"
+                    "  or 'ijachi providers' to check which providers are currently active.",
+                    fg="yellow",
+                ))
         except (KeyboardInterrupt, EOFError):
-            click.echo(click.style("\n👋 Session ended.", fg="cyan"))
+            if acc:
+                print("ijachi: Session ended.")
+            else:
+                click.echo(click.style("\n👋 Session ended.", fg="cyan"))
             break
         except Exception as exc:  # noqa: BLE001
-            click.echo(click.style(f"\n✗ Unexpected error: {exc}", fg="red"))
-            click.echo(click.style("  Type 'exit' to quit or try a different prompt.", fg="yellow"))
+            if acc:
+                print(f"tool_error: Unexpected error: {exc}")
+            else:
+                click.echo(click.style(f"\n✗ Unexpected error: {exc}", fg="red"))
+                click.echo(click.style("  Type 'exit' to quit or try a different prompt.", fg="yellow"))
+
+    # Auto-save transcript on exit
+    try:
+        saved = transcript.save()
+        if not acc:
+            click.echo(click.style(f"[Transcript saved to {saved}]", fg="bright_black"))
+    except Exception:
+        pass
+
+
+def _handle_config_set(key: str, value: str) -> None:
+    """Persist a config key-value pair to ~/.ijachi-llmr/config.yaml.
+
+    Args:
+        key: Config key name (e.g. 'style_guide', 'theme', 'vim_mode').
+        value: String value to set.
+    """
+    import yaml
+    from pathlib import Path
+    config_path = Path.home() / ".ijachi-llmr" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict = {}
+    if config_path.exists():
+        try:
+            with config_path.open() as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            pass
+    # Coerce booleans
+    if value.lower() in ("true", "1", "yes"):
+        data[key] = True
+    elif value.lower() in ("false", "0", "no"):
+        data[key] = False
+    else:
+        data[key] = value
+    with config_path.open("w") as f:
+        yaml.safe_dump(data, f)
+    click.echo(click.style(f"✓ Config: {key} = {data[key]} (saved to {config_path})", fg="green"))
+
+
+def _print_config(cfg) -> None:
+    """Print current config values to the console.
+
+    Args:
+        cfg: RouterConfig instance to display.
+    """
+    click.echo(click.style("\n⚙️  Current Config:", fg="cyan", bold=True))
+    click.echo(f"  priority        = {cfg.priority}")
+    click.echo(f"  style_guide     = {cfg.style_guide}")
+    click.echo(f"  auto_format     = {cfg.auto_format}")
+    click.echo(f"  require_comments= {cfg.require_comments}")
+    click.echo(f"  vim_mode        = {cfg.vim_mode}")
+    click.echo(f"  theme           = {cfg.theme}")
+    click.echo(f"  accessibility   = {cfg.accessibility}")
+    click.echo(f"  max_cost        = {cfg.max_cost_per_call}")
+    click.echo()
 
 
 @main.command(name="fix")
@@ -591,6 +875,77 @@ def update_cmd():
     click.echo(click.style(f"✓ {msg}", fg="green", bold=True))
 
 
+@main.group(name="skills")
+def skills_group():
+    """[SKILLS] Discover, list, run, and install ijachi-code skills."""
+
+
+@skills_group.command(name="list")
+def skills_list_cmd():
+    """List all discovered skills (builtin + global + workspace-local)."""
+    from ijachi_router.skill_manager import SkillManager
+    SkillManager().print_skills_table()
+
+
+@skills_group.command(name="run")
+@click.argument("skill_name")
+@click.argument("task")
+@click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
+def skills_run_cmd(skill_name, task, priority):
+    """Run a specific skill by NAME on TASK."""
+    from ijachi_router.skill_manager import SkillManager
+    from ijachi_router.agent import AgenticRouter
+
+    sm = SkillManager()
+    skill = sm.get_skill(skill_name)
+    if not skill:
+        click.echo(click.style(f"✗ Skill '{skill_name}' not found. Run 'ijachi-router skills list' to see available skills.", fg="red"))
+        return
+
+    click.echo(click.style(f"⚡ Running skill: [bold]{skill.name}[/bold] v{skill.version}", fg="cyan"))
+    click.echo(click.style(f"   {skill.description}", fg="bright_black"))
+
+    agent = AgenticRouter(priority=priority, require_approval=True)
+    # Prepend skill instructions to the task
+    enriched_task = f"{skill.instructions}\n\nTask: {task}"
+    result = agent.run(enriched_task)
+    click.echo("\n" + click.style("=== Skill Result ===", fg="green", bold=True))
+    click.echo(result.final_text)
+    click.echo(click.style(f"\n[skill={skill.name} steps={len(result.steps)} cost=${result.total_cost_usd:.4f}]", fg="bright_black"))
+
+
+@skills_group.command(name="add")
+@click.argument("path", type=click.Path(exists=True))
+def skills_add_cmd(path):
+    """Install a skill directory into the global skills root (~/.ijachi-llmr/skills/)."""
+    from ijachi_router.skill_manager import SkillManager
+    from pathlib import Path
+
+    sm = SkillManager()
+    msg = sm.install_skill(Path(path))
+    if msg.startswith("✓"):
+        click.echo(click.style(msg, fg="green"))
+    else:
+        click.echo(click.style(msg, fg="red"))
+
+
+@main.command(name="theme")
+@click.argument("theme_name", type=click.Choice(["dark", "light", "ansi", "accessible", "auto"]), required=False)
+def theme_cmd(theme_name):
+    """Switch or display the active UI theme (dark/light/ansi/accessible/auto)."""
+    from ijachi_router.ui import set_theme, get_current_theme, list_themes
+
+    if not theme_name:
+        current = get_current_theme()
+        click.echo(f"Current theme: [bold]{current}[/bold]")
+        click.echo(f"Available: {', '.join(list_themes())}")
+        return
+
+    applied = set_theme(theme_name)
+    _handle_config_set("theme", applied)
+    click.echo(click.style(f"✓ Theme switched to '{applied}' and saved.", fg="green"))
+
+
 def code_main():
     """Standalone ijachi-code CLI entrypoint tuned specifically for coding tasks."""
     import sys
@@ -598,7 +953,8 @@ def code_main():
         "route", "stats", "providers", "provider", "update-catalog", "train",
         "serve", "dashboard", "license", "setup", "launcher", "export-sdk",
         "models", "keys", "agent", "chat", "swarm", "fix", "consensus",
-        "index", "doc", "commit", "benchmark", "budget", "extension-server", "update"
+        "index", "doc", "commit", "benchmark", "budget", "extension-server",
+        "update", "skills", "theme",
     }
     args = sys.argv[1:]
     if args and not args[0].startswith("-") and args[0] not in known_commands:

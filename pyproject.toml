@@ -34,6 +34,8 @@ dependencies = [
     "openai>=1.0",
     # Required by the Anthropic provider
     "anthropic>=0.25",
+    # Enhanced interactive terminal prompt (multi-line, history, autocomplete, Vi mode)
+    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -68,7 +70,7 @@ include = ["ijachi_router*"]
 py-modules = ["cli"]
 
 [tool.setuptools.package-data]
-"ijachi_router" = ["../models.yaml", "../data/train_data.csv"]
+"ijachi_router" = ["../models.yaml", "../data/train_data.csv", "skills/builtin/**/*.md", "skills/builtin/**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

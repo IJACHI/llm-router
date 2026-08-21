@@ -2,6 +2,16 @@
 
 Provides multi-step autonomous tool execution (read_file, write_file, edit_file,
 list_dir, grep_search, run_command) powered by ijachi-llm-router's multi-provider engine.
+
+New in this version
+-------------------
+- CodeFormatter integration: auto-formats written/edited files and enforces style
+- SkillManager integration: auto-activates relevant skills based on the task
+- TaskChecklist: real-time progress display during multi-step agent runs
+- Enhanced permission dialogs with Ctrl+E LLM explanation support
+- Desktop / terminal bell notification on task completion
+- Message queue for input while the agent is busy
+- Accessibility mode: plain labeled sequential output
 """
 
 from __future__ import annotations
@@ -18,6 +28,7 @@ from rich.console import Console
 from rich.prompt import Confirm
 
 from ijachi_router.core import route
+from ijachi_router.formatter import CodeFormatter
 from ijachi_router.security import scan_and_fix, format_security_summary, scan
 from ijachi_router.validator import validate
 
@@ -25,14 +36,136 @@ console = Console()
 
 
 # ---------------------------------------------------------------------------
+# Notification helper
+# ---------------------------------------------------------------------------
+
+def _notify(title: str, message: str) -> None:
+    """Send a desktop notification and ring the terminal bell.
+
+    Falls back gracefully if notification tools are unavailable.
+
+    Args:
+        title: Notification title (e.g. 'ijachi-code').
+        message: Notification body text.
+    """
+    # Terminal bell
+    print("\a", end="", flush=True)
+    # macOS native notification
+    if os.path.exists("/usr/bin/osascript"):
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 f'display notification "{message}" with title "{title}"'],
+                timeout=3, capture_output=True,
+            )
+        except Exception:
+            pass
+    # Linux libnotify
+    elif os.path.exists("/usr/bin/notify-send"):
+        try:
+            subprocess.run(
+                ["notify-send", title, message],
+                timeout=3, capture_output=True,
+            )
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Task Checklist
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ChecklistItem:
+    """A single item in the agent task checklist."""
+    label: str
+    """Human-readable task description."""
+    done: bool = False
+    """True once the step is marked complete."""
+
+
+class TaskChecklist:
+    """Real-time task progress display shown during multi-step agent runs.
+
+    In normal mode renders a Rich live panel; in accessibility mode prints
+    plain labeled lines.
+
+    Args:
+        accessible: If True, use plain sequential output instead of Rich panels.
+    """
+
+    def __init__(self, accessible: bool = False) -> None:
+        self.items: list[ChecklistItem] = []
+        self.accessible = accessible
+
+    def add(self, label: str) -> None:
+        """Register a new checklist item.
+
+        Args:
+            label: Description of the step to track.
+        """
+        self.items.append(ChecklistItem(label=label))
+        if self.accessible:
+            print(f"task: [ ] {label}")
+
+    def complete(self, index: int) -> None:
+        """Mark item at *index* as done and re-render.
+
+        Args:
+            index: Zero-based index of the item to mark complete.
+        """
+        if 0 <= index < len(self.items):
+            self.items[index].done = True
+            if self.accessible:
+                print(f"task: [x] {self.items[index].label}")
+            else:
+                self._render()
+
+    def _render(self) -> None:
+        """Print the current checklist state to the console."""
+        lines = []
+        for item in self.items:
+            icon = "[green]✓[/green]" if item.done else "[yellow]○[/yellow]"
+            lines.append(f"  {icon} {item.label}")
+        console.print("[bold cyan]📋 Task Checklist[/bold cyan]")
+        for line in lines:
+            console.print(line)
+
+    def render(self) -> None:
+        """Publicly trigger a checklist render (used by Ctrl+T toggle)."""
+        if self.accessible:
+            for item in self.items:
+                mark = "x" if item.done else " "
+                print(f"task: [{mark}] {item.label}")
+        else:
+            self._render()
+
+
+# ---------------------------------------------------------------------------
 # Workspace Tool Set
 # ---------------------------------------------------------------------------
 
 class WorkspaceTools:
-    """Safely executes workspace operations on the local file system."""
+    """Safely executes workspace operations on the local file system.
 
-    def __init__(self, root_dir: Path | str | None = None):
+    Integrates CodeFormatter to auto-format written/edited files and enforce
+    configured style guide rules and comment requirements.
+
+    Args:
+        root_dir: Workspace root directory. Defaults to cwd.
+        formatter: CodeFormatter instance. Created from config defaults if not provided.
+        accessible: If True, use plain accessibility-mode output instead of Rich panels.
+    """
+
+    def __init__(
+        self,
+        root_dir: Path | str | None = None,
+        formatter: CodeFormatter | None = None,
+        accessible: bool = False,
+    ):
         self.root_dir = Path(root_dir or Path.cwd()).resolve()
+        self.formatter = formatter or CodeFormatter()
+        self.accessible = accessible
 
     def _resolve_path(self, relative_or_abs: str) -> Path:
         p = Path(relative_or_abs)
@@ -56,8 +189,25 @@ class WorkspaceTools:
             return f"Error reading file '{path}': {e}"
 
     def write_file(self, path: str, content: str, require_approval: bool = True) -> str:
+        """Write *content* to *path*, applying formatting and security scans.
+
+        Pre-formats the content string, validates syntax, runs a security scan,
+        prompts for approval if required, writes the file, then runs a post-write
+        lint gate and format pass.
+
+        Args:
+            path: Relative or absolute file path.
+            content: Full file content to write.
+            require_approval: If True, prompt the user before writing.
+
+        Returns:
+            Status message describing the outcome.
+        """
         target = self._resolve_path(path)
         ext = target.suffix.lower()
+
+        # Pre-format content string before validation
+        content = self.formatter.format_content(content, filename=str(target))
 
         # Zero-regression validation gate
         val = validate(content, filename=str(target))
@@ -73,18 +223,48 @@ class WorkspaceTools:
             console.print(f"[bold red]{format_security_summary(report)}[/bold red]")
 
         if require_approval:
-            console.print(f"\n[bold yellow]⚠️ Workspace File Creation/Overwrite Request[/bold yellow]")
-            console.print(f"Target path: [cyan]{target}[/cyan]")
-            if not Confirm.ask("Do you want to proceed with writing to this file?", default=True):
-                return "Cancelled by user."
+            if self.accessible:
+                print(f"permission_required: Write to {target}? [y/n]: ")
+                answer = input().strip().lower()
+                if answer != "y":
+                    return "Cancelled by user."
+            else:
+                console.print(f"\n[bold yellow]⚠️ Workspace File Creation/Overwrite Request[/bold yellow]")
+                console.print(f"Target path: [cyan]{target}[/cyan]")
+                if not Confirm.ask("Do you want to proceed with writing to this file?", default=True):
+                    return "Cancelled by user."
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
-            return f"Successfully wrote {len(content)} characters to '{path}'."
+
+            # Post-write: format on disk + lint gate
+            fmt_result = self.formatter.format(target)
+            status = f"Successfully wrote {len(content)} characters to '{path}'."
+            if fmt_result.changed:
+                status += f" (auto-formatted with {fmt_result.formatter_used})"
+            if fmt_result.lint_warnings:
+                warnings_str = "\n  ".join(fmt_result.lint_warnings[:5])
+                status += f"\n  Lint warnings:\n  {warnings_str}"
+            return status
         except Exception as e:
             return f"Error writing file '{path}': {e}"
 
     def edit_file(self, path: str, target_content: str, replacement_content: str, require_approval: bool = True) -> str:
+        """Apply a targeted edit to *path*, formatting and scanning the result.
+
+        Finds *target_content* in the file, replaces it with *replacement_content*,
+        validates the resulting file, runs a security scan, prompts for approval,
+        writes it, then runs a post-write lint gate.
+
+        Args:
+            path: Relative or absolute file path.
+            target_content: Exact string to search for in the file.
+            replacement_content: Replacement string.
+            require_approval: If True, show a diff and prompt before writing.
+
+        Returns:
+            Status message describing the outcome.
+        """
         target = self._resolve_path(path)
         if not target.exists():
             return f"Error: File '{path}' does not exist."
@@ -110,17 +290,64 @@ class WorkspaceTools:
                 console.print(f"[bold red]{format_security_summary(report)}[/bold red]")
 
             if require_approval:
-                console.print(f"\n[bold yellow]⚠️ Workspace File Edit Request[/bold yellow]")
-                console.print(f"Target path: [cyan]{target}[/cyan]")
-                console.print(f"[red]- Removing:[/red]\n{target_content[:300]}")
-                console.print(f"[green]+ Adding:[/green]\n{replacement_content[:300]}")
-                if not Confirm.ask("Do you want to apply this edit?", default=True):
-                    return "Cancelled by user."
+                if self.accessible:
+                    print(f"permission_required: Edit {target}? [y/n/e=explain]: ")
+                    answer = input().strip().lower()
+                    if answer not in ("y", ""):
+                        return "Cancelled by user."
+                else:
+                    console.print(f"\n[bold yellow]⚠️ Workspace File Edit Request[/bold yellow]")
+                    console.print(f"Target path: [cyan]{target}[/cyan]")
+                    console.print(f"[red]- Removing:[/red]\n{target_content[:300]}")
+                    console.print(f"[green]+ Adding:[/green]\n{replacement_content[:300]}")
+                    console.print("[dim]Options: [bold]y[/bold]=apply  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
+                    try:
+                        choice = input("Choice [y/n/e]: ").strip().lower()
+                    except (KeyboardInterrupt, EOFError):
+                        choice = "n"
+                    if choice == "e":
+                        self._explain_edit(target_content, replacement_content)
+                        try:
+                            choice = input("Apply after explanation? [y/n]: ").strip().lower()
+                        except (KeyboardInterrupt, EOFError):
+                            choice = "n"
+                    if choice != "y":
+                        return "Cancelled by user."
 
             target.write_text(new_content, encoding="utf-8")
-            return f"Successfully applied edit to '{path}'."
+
+            # Post-write: format on disk + lint gate
+            fmt_result = self.formatter.format(target)
+            status = f"Successfully applied edit to '{path}'."
+            if fmt_result.changed:
+                status += f" (auto-formatted with {fmt_result.formatter_used})"
+            if fmt_result.lint_warnings:
+                warnings_str = "\n  ".join(fmt_result.lint_warnings[:5])
+                status += f"\n  Lint warnings:\n  {warnings_str}"
+            return status
         except Exception as e:
             return f"Error editing file '{path}': {e}"
+
+    def _explain_edit(self, target_content: str, replacement_content: str) -> None:
+        """Use the LLM to explain what a proposed edit does and why.
+
+        Calls the router with a brief explanation request and prints the result.
+
+        Args:
+            target_content: The original code being replaced.
+            replacement_content: The new code being inserted.
+        """
+        prompt = (
+            "Explain in 2-3 sentences what the following code change does and "
+            "why it might be necessary:\n\n"
+            f"REMOVING:\n```\n{target_content[:500]}\n```\n\n"
+            f"ADDING:\n```\n{replacement_content[:500]}\n```"
+        )
+        try:
+            res = route(prompt=prompt, priority="speed")
+            console.print(f"\n[bold cyan]🔍 Edit Explanation:[/bold cyan]\n{res.text}\n")
+        except Exception as exc:
+            console.print(f"[yellow]Could not generate explanation: {exc}[/yellow]")
 
     def list_dir(self, path: str = ".") -> str:
         target = self._resolve_path(path)
@@ -165,11 +392,46 @@ class WorkspaceTools:
             return f"Error running grep search: {e}"
 
     def run_command(self, command: str, require_approval: bool = True) -> str:
+        """Run *command* as a shell command, with optional approval prompt.
+
+        Args:
+            command: Shell command string to execute.
+            require_approval: If True, prompt before running.
+
+        Returns:
+            String combining exit code, stdout, and stderr.
+        """
         if require_approval:
-            console.print(f"\n[bold yellow]⚠️ Shell Execution Request[/bold yellow]")
-            console.print(f"Command: [bold cyan]{command}[/bold cyan]")
-            if not Confirm.ask("Do you want to run this command?", default=True):
-                return "Command execution cancelled by user."
+            if self.accessible:
+                print(f"permission_required: Run command '{command}'? [y/n/e=explain]: ")
+                try:
+                    answer = input().strip().lower()
+                except (KeyboardInterrupt, EOFError):
+                    answer = "n"
+                if answer == "e":
+                    self._explain_command(command)
+                    try:
+                        answer = input("Run after explanation? [y/n]: ").strip().lower()
+                    except (KeyboardInterrupt, EOFError):
+                        answer = "n"
+                if answer != "y":
+                    return "Command execution cancelled by user."
+            else:
+                console.print(f"\n[bold yellow]⚠️ Shell Execution Request[/bold yellow]")
+                console.print(f"Command: [bold cyan]{command}[/bold cyan]")
+                console.print("[dim]Options: [bold]y[/bold]=run  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
+                try:
+                    choice = input("Choice [y/n/e]: ").strip().lower()
+                except (KeyboardInterrupt, EOFError):
+                    choice = "n"
+                if choice == "e":
+                    self._explain_command(command)
+                    try:
+                        choice = input("Run after explanation? [y/n]: ").strip().lower()
+                    except (KeyboardInterrupt, EOFError):
+                        choice = "n"
+                if choice != "y":
+                    return "Command execution cancelled by user."
         try:
             proc = subprocess.run(
                 command,
@@ -191,6 +453,22 @@ class WorkspaceTools:
             return "Error: Command timed out after 60 seconds."
         except Exception as e:
             return f"Error running command: {e}"
+
+    def _explain_command(self, command: str) -> None:
+        """Use the LLM to explain what a shell command does (Ctrl+E behaviour).
+
+        Args:
+            command: The shell command to explain.
+        """
+        prompt = (
+            f"Explain in plain English what this shell command does, what it modifies, "
+            f"and any potential risks:\n\n```sh\n{command}\n```"
+        )
+        try:
+            res = route(prompt=prompt, priority="speed")
+            console.print(f"\n[bold cyan]🔍 Command Explanation:[/bold cyan]\n{res.text}\n")
+        except Exception as exc:
+            console.print(f"[yellow]Could not generate explanation: {exc}[/yellow]")
 
 
     def git_checkpoint(self) -> str:
@@ -240,6 +518,17 @@ class AgentResult:
     completed: bool = True
 
 
+_STYLE_INSTRUCTION = """
+## Code Generation Requirements
+- Write clean, idiomatic, production-ready code.
+- Every module, class, and public function MUST have a docstring/JSDoc comment.
+- Add inline comments for non-obvious logic.
+- Use descriptive variable and function names — no cryptic abbreviations.
+- Include type annotations for all function signatures.
+- Handle errors explicitly; never silently swallow exceptions.
+- Extract magic numbers and string literals into named constants.
+"""
+
 _SYSTEM_PROMPT = """You are ijachi-code, an autonomous agentic pair programmer.
 You have access to the following workspace tools:
 - read_file(path, start_line, end_line)
@@ -265,30 +554,110 @@ If no further tool calls are required and your task is complete, respond with:
   "final_answer": "Complete final answer here"
 }
 ```
-"""
+""" + _STYLE_INSTRUCTION
 
 
 class AgenticRouter:
-    """Autonomous agentic router that ties multi-provider routing to workspace tools."""
+    """Autonomous agentic router that ties multi-provider routing to workspace tools.
 
-    def __init__(self, root_dir: Path | str | None = None, priority: str = "balanced", require_approval: bool = True):
-        self.tools = WorkspaceTools(root_dir=root_dir)
+    Integrates skill auto-activation, code formatting, task checklist display,
+    and desktop notifications into the agent execution loop.
+
+    Args:
+        root_dir: Workspace root. Defaults to cwd.
+        priority: Routing priority ('cost', 'speed', 'quality', 'balanced').
+        require_approval: If True, prompt before file writes, edits, and shell commands.
+        style_guide: Code style guide to enforce (e.g. 'pep8', 'prettier').
+        auto_format: If True, auto-format files after write/edit tool calls.
+        require_comments: If True, inject missing docstrings/JSDoc headers.
+        accessible: If True, use plain sequential labeled output (screen-reader mode).
+    """
+
+    def __init__(
+        self,
+        root_dir: Path | str | None = None,
+        priority: str = "balanced",
+        require_approval: bool = True,
+        style_guide: str = "pep8",
+        auto_format: bool = True,
+        require_comments: bool = True,
+        accessible: bool = False,
+        force_model: str | None = None,
+    ):
+        self.formatter = CodeFormatter(
+            style_guide=style_guide,
+            auto_format=auto_format,
+            require_comments=require_comments,
+        )
+        self.tools = WorkspaceTools(
+            root_dir=root_dir,
+            formatter=self.formatter,
+            accessible=accessible,
+        )
         self.priority = priority
+        self.force_model = force_model
         self.require_approval = require_approval
+        self.accessible = accessible
+        self.checklist = TaskChecklist(accessible=accessible)
+
+        # Load and prepare skill manager
+        from ijachi_router.skill_manager import SkillManager
+        self._skill_manager = SkillManager(workspace_root=self.tools.root_dir)
+
+    def set_model(self, model_id: str | None) -> None:
+        """Switch or pin a specific model dynamically."""
+        self.force_model = model_id
+
+    def set_priority(self, priority: str) -> None:
+        """Switch routing priority dynamically."""
+        self.priority = priority
+        self.force_model = None
 
     def run(self, task: str, max_steps: int = 10) -> AgentResult:
+        """Execute *task* autonomously using the workspace tool set.
+
+        Auto-activates relevant skills from SkillManager and prepends their
+        instructions to the system prompt. Displays a task checklist and
+        notifies on completion.
+
+        Args:
+            task: The user's task description or instruction.
+            max_steps: Maximum number of LLM→tool iterations before stopping.
+
+        Returns:
+            :class:`AgentResult` with the final answer, step log, and cost.
+        """
         conversation_history: list[dict[str, str]] = []
         steps: list[AgentStep] = []
         total_cost = 0.0
 
-        current_prompt = f"{_SYSTEM_PROMPT}\n\nTask: {task}\n"
+        # Auto-activate skills matching the task
+        active_skills = self._skill_manager.get_active_skills(task)
+        skill_prompt = self._skill_manager.build_skill_prompt(active_skills)
+        if active_skills and not self.accessible:
+            skill_names = ", ".join(s.name for s in active_skills)
+            console.print(f"[dim cyan]⚡ Activated skills: {skill_names}[/dim cyan]")
+
+        # Build full system prompt: base + style guide + active skills
+        style_block = self.formatter.get_style_prompt()
+        full_system_prompt = _SYSTEM_PROMPT + style_block + skill_prompt
+
+        current_prompt = f"{full_system_prompt}\n\nTask: {task}\n"
 
         for step_idx in range(1, max_steps + 1):
-            console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
+            if self.accessible:
+                print(f"ijachi: [step {step_idx}/{max_steps}] thinking...")
+            else:
+                console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
 
             # Route: classify only the *task* text for model selection,
             # but send the full conversation context as the actual prompt.
-            res = route(prompt=current_prompt, priority=self.priority, _classify_as=task)
+            res = route(
+                prompt=current_prompt,
+                priority=self.priority,
+                force_model=self.force_model,
+                _classify_as=task,
+            )
             total_cost += res.cost_usd
 
             response_text = res.text.strip()
@@ -307,6 +676,8 @@ class AgenticRouter:
 
             if not parsed or "final_answer" in parsed:
                 final_text = parsed.get("final_answer", response_text) if parsed else response_text
+                # Notify on completion
+                _notify("ijachi-code", "Task complete ✓")
                 return AgentResult(
                     final_text=final_text,
                     steps=steps,
@@ -318,8 +689,12 @@ class AgenticRouter:
             tool_name = parsed.get("tool")
             args = parsed.get("args", {})
 
-            console.print(f"[dim]Thought: {thought}[/dim]")
-            console.print(f"[bold yellow]Tool Call: {tool_name}({args})[/bold yellow]")
+            if self.accessible:
+                print(f"ijachi: {thought}")
+                print(f"tool: {tool_name}({list(args.keys())})")
+            else:
+                console.print(f"[dim]Thought: {thought}[/dim]")
+                console.print(f"[bold yellow]Tool Call: {tool_name}({args})[/bold yellow]")
 
             tool_output = ""
             if tool_name == "read_file":
@@ -355,6 +730,12 @@ class AgenticRouter:
                 )
             else:
                 tool_output = f"Unknown tool: {tool_name}"
+
+            if self.accessible:
+                if "error" in tool_output.lower() or "Exit Code: 1" in tool_output:
+                    print(f"tool_error: {tool_name} → {tool_output[:200]}")
+                else:
+                    print(f"tool: {tool_name} → done")
 
             step_record = AgentStep(
                 step_number=step_idx,

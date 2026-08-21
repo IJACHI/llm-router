@@ -68,7 +68,15 @@ class RouterConfig:
     max_cost_per_call: float | None = None
     available_providers: set[str] = field(default_factory=set)
 
-    # ── Derived helpers ─────────────────────────────────────────────────────
+    # ── Style & Formatting ──────────────────────────────────────────────────
+    style_guide: str = "pep8"           # pep8 | google | black | airbnb | standard | prettier
+    auto_format: bool = True            # Run formatter after every write_file / edit_file
+    require_comments: bool = True       # Inject missing docstrings/JSDoc headers
+
+    # ── UI Preferences ──────────────────────────────────────────────────────
+    vim_mode: bool = False              # Enable Vi editing mode in the prompt
+    theme: str = "dark"                 # dark | light | ansi | accessible | auto
+    accessibility: bool = False         # Screen-reader mode (sequential labeled output)
 
     def models_for_provider(self, provider: str) -> list[ModelConfig]:
         return [m for m in self.models if m.provider == provider]
@@ -236,6 +244,13 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
     if max_cost is not None:
         max_cost = float(max_cost)
 
+    style_guide = user.get("style_guide", "pep8")
+    auto_format = bool(user.get("auto_format", True))
+    require_comments = bool(user.get("require_comments", True))
+    vim_mode = bool(user.get("vim_mode", False))
+    theme = user.get("theme", "dark")
+    accessibility = bool(user.get("accessibility", False))
+
     # Auto-load saved keys from ~/.ijachi-llmr/keys.env
     try:
         from ijachi_router.key_manager import KeyManager
@@ -250,5 +265,11 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
         priority=priority,
         max_cost_per_call=max_cost,
         available_providers=available,
+        style_guide=style_guide,
+        auto_format=auto_format,
+        require_comments=require_comments,
+        vim_mode=vim_mode,
+        theme=theme,
+        accessibility=accessibility,
     )
 
