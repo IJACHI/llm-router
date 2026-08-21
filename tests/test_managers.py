@@ -42,14 +42,18 @@ def test_model_manager(tmp_path):
         encoding="utf-8",
     )
 
-    mm = ModelManager(models_yaml=models_yaml)
-    models = mm.list_models()
-    assert len(models) == 1
-    assert models[0].model_id == "gpt-4o"
+    from unittest.mock import patch
+    # Isolate from locally-installed Ollama models so counts are deterministic
+    with patch("ijachi_router.config._discover_ollama_models", return_value=[]):
+        mm = ModelManager(models_yaml=models_yaml)
+        models = mm.list_models()
+        assert len(models) == 1
+        assert models[0].model_id == "gpt-4o"
 
-    msg = mm.add_model("claude-3-7-sonnet", "anthropic", speed_tier="slow", input_per_1k=0.003, output_per_1k=0.015)
-    assert "added" in msg.lower()
+        msg = mm.add_model("claude-3-7-sonnet", "anthropic", speed_tier="slow", input_per_1k=0.003, output_per_1k=0.015)
+        assert "added" in msg.lower()
 
-    models_updated = mm.list_models()
-    assert len(models_updated) == 2
-    assert any(m.model_id == "claude-3-7-sonnet" for m in models_updated)
+        models_updated = mm.list_models()
+        assert len(models_updated) == 2
+        assert any(m.model_id == "claude-3-7-sonnet" for m in models_updated)
+

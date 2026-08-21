@@ -126,6 +126,50 @@ def _detect_available_providers(models: list[ModelConfig]) -> set[str]:
     return available
 
 
+def _discover_ollama_models() -> list[ModelConfig]:
+    """Query the local Ollama server and return ModelConfig for every installed model.
+
+    Returns an empty list (silently) if Ollama is not running or unreachable.
+    Cloud-routed models (size == 0) are included — Ollama routes them transparently.
+    """
+    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    if not host.startswith(("http://", "https://")):
+        host = f"http://{host}"
+    try:
+        import requests
+        resp = requests.get(f"{host}/api/tags", timeout=3)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    discovered: list[ModelConfig] = []
+    for model in data.get("models", []):
+        name: str = model.get("name", "").strip()
+        if not name:
+            continue
+        # All local models can handle any task type
+        tags = ["simple-qa", "summarization", "creative", "code", "reasoning", "long-context", "math"]
+        size_bytes = model.get("size", 0) or 0
+        if size_bytes > 20_000_000_000:    # > 20 GB -> large/slow
+            speed_tier = "slow"
+        elif size_bytes < 3_000_000_000:   # < 3 GB -> small/fast
+            speed_tier = "fast"
+        else:
+            speed_tier = "medium"
+        discovered.append(ModelConfig(
+            provider="local",
+            model_id=name,
+            tags=tags,
+            input_per_1k=0.0,
+            output_per_1k=0.0,
+            max_context=131072,
+            speed_tier=speed_tier,
+        ))
+    return discovered
+
+
+
 # ---------------------------------------------------------------------------
 # Loaders
 # ---------------------------------------------------------------------------
@@ -170,6 +214,18 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
             yaml_path = _DEFAULT_MODELS_YAML
 
     models = _load_models(yaml_path)
+
+    # Auto-discover locally installed Ollama models and merge them in.
+    # Hardcoded catalog entries win (dedup by provider+model_id) so that
+    # any custom tags/pricing set in models.yaml are preserved.
+    ollama_models = _discover_ollama_models()
+    if ollama_models:
+        existing_ids = {(m.provider, m.model_id) for m in models}
+        for om in ollama_models:
+            if (om.provider, om.model_id) not in existing_ids:
+                models.append(om)
+        # Mark local as available since Ollama is reachable
+        # (will be picked up by _detect_available_providers via provider list)
 
     user = _load_user_config()
     priority = user.get("priority", "balanced")
