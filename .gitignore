@@ -38,4 +38,6 @@ Thumbs.db
 # ~/.ijachi-llmr/config.yaml
 license.key
 *.key
+.gh-router-extension/
+.ijachi-app/
 
