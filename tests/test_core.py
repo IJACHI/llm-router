@@ -126,8 +126,14 @@ class TestRouter:
         config.available_providers = {"anthropic", "openai", "local"}
         config.priority = "cost"
         ranked = _rank_models(config, "simple-qa", complexity=0.1)
-        # local models have 0 cost — should rank first
-        assert ranked[0].provider == "local"
+        # Local models are always pushed to the end when remote providers are available
+        # (they are free but may be offline) — the cheapest *remote* model should rank first.
+        remote_models = [m for m in ranked if m.provider != "local"]
+        local_models = [m for m in ranked if m.provider == "local"]
+        assert remote_models, "Expected at least one remote model in ranked list"
+        assert local_models, "Expected at least one local model in ranked list"
+        # Remote models must appear before local models
+        assert ranked.index(remote_models[0]) < ranked.index(local_models[0])
 
     def test_priority_quality_prefers_slow_models(self):
         config = load_config(_MODELS_YAML)

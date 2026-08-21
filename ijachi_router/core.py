@@ -113,10 +113,12 @@ def _rank_models(
             config.max_cost_per_call,
         )
         if s is not None:
-            # If remote providers are available, push local models to the back
-            # so we only fall back to Ollama if all remote calls fail.
+            # If remote providers are available, push local models to the very end.
+            # Use a fixed sentinel (-1.0) because zero-cost local models score
+            # astronomically high in cost-based scoring (1/1e-6 = 1,000,000),
+            # so a simple -1000 offset isn't enough to push them below remote models.
             if has_remote and model.provider == "local":
-                s = -1000.0 + s  # large negative keeps local at the end
+                s = -1.0
             scored.append((s, model))
 
     # Sort descending by score, then alphabetically by model_id for stability
