@@ -22,10 +22,10 @@ else
     TARGET_DIR="$INSTALL_DIR"
     if [ -d "$TARGET_DIR" ]; then
         echo "🔄 Updating existing installation in $TARGET_DIR..."
-        git -C "$TARGET_DIR" pull --rebase origin main || true
+        git -C "$TARGET_DIR" pull --rebase origin main 2>/dev/null || true
     else
         echo "📥 Downloading ijachi codebase..."
-        git clone "$REPO_URL" "$TARGET_DIR"
+        git clone "$REPO_URL" "$TARGET_DIR" 2>/dev/null
     fi
 fi
 
@@ -35,10 +35,10 @@ if [ ! -d "$TARGET_DIR/.venv" ]; then
     python3 -m venv "$TARGET_DIR/.venv"
 fi
 
-# 3. Upgrade pip and install package
+# 3. Upgrade pip and install package (suppressing warnings & cache)
 echo "⚙️ Installing dependencies..."
-PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --upgrade pip
-PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir -e "$TARGET_DIR"
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --no-warn-script-location --upgrade pip 2>/dev/null || true
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$TARGET_DIR/.venv/bin/pip" install --quiet --no-cache-dir --no-warn-script-location -e "$TARGET_DIR" 2>/dev/null || true
 
 # 4. Symlink global shortcut executables to ~/.local/bin
 echo "🔗 Registering global shortcut binaries in $BIN_DIR..."
@@ -49,7 +49,10 @@ for cmd in ijachi ijachi-code ijachi-router ijr; do
     fi
 done
 
-# 5. Configure Shell PATH in ~/.zshrc, ~/.bashrc, ~/.profile
+# 5. Export PATH immediately for active shell session
+export PATH="$HOME/.local/bin:$PATH"
+
+# 6. Configure Shell PATH in ~/.zshrc, ~/.bashrc, ~/.profile
 PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
 SHELL_CONFIGS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile")
 
@@ -59,7 +62,7 @@ for cfg in "${SHELL_CONFIGS[@]}"; do
             echo "" >> "$cfg"
             echo "# ijachi global PATH" >> "$cfg"
             echo "$PATH_LINE" >> "$cfg"
-            echo "   ✓ Added PATH to $cfg"
+            echo "   ✓ Configured $cfg"
         fi
     fi
 done
@@ -67,5 +70,5 @@ done
 echo ""
 echo "=============================================================================="
 echo "🎉 SUCCESS! ijachi & ijachi-code are now globally installed!"
-echo "Open a new terminal tab or run 'source ~/.zshrc', then type 'ijachi'."
+echo "You can now type 'ijachi' immediately in your terminal!"
 echo "=============================================================================="
