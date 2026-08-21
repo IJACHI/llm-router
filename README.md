@@ -35,12 +35,29 @@ Generated unit tests. 100% tests passing.
 
 ---
 
-## ⚡ Universal Quickstart (Launch from Anywhere!)
+## ⚡ Global Installation Options
+
+### Option 1: One-Line Remote Installer (Recommended for Any Laptop)
+Paste this single command into any macOS / Linux terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/install.sh | bash
+```
+
+### Option 2: Standard PyPI Package (`pip`)
+Install directly via `pip` from PyPI:
 
 ```bash
 pip install ijachi-llm-router
+```
 
-# Launch instantly from ANY folder in ANY terminal window:
+---
+
+## 🚀 Launching `ijachi`
+
+Once installed, simply type **`ijachi`** in any terminal window in any folder:
+
+```bash
 ijachi
 ```
 
@@ -173,6 +190,7 @@ print(f"Model: {result.model}  Cost: ${result.cost_usd:.4f}  Latency: {result.la
 
 ```
 ijachi-llm-router/
+├── install.sh               # One-line remote curl installer script
 ├── pyproject.toml           # Package entrypoints (ijachi, ijachi-code, ijachi-router)
 ├── cli.py                  # CLI entry point (click)
 ├── models.yaml             # Model catalog — preconfigured matrix
