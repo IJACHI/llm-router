@@ -46,15 +46,18 @@ class LauncherWizard:
         """Returns map of provider -> {env_var, active, description}."""
         status = {}
         for p, env_var in _PROVIDER_ENV_VARS.items():
-            if p == "local":
-                is_active = True  # Ollama always available locally
-            else:
-                is_active = bool(os.getenv(env_var))
+            is_active = bool(os.getenv(env_var))
             status[p] = {
                 "env_var": env_var,
                 "active": is_active,
                 "description": _PROVIDER_DESCRIPTIONS.get(p, "LLM Service Provider"),
             }
+        # Local Ollama always appears in the table — it needs no API key
+        status["local"] = {
+            "env_var": "OLLAMA_HOST",
+            "active": True,
+            "description": _PROVIDER_DESCRIPTIONS.get("local", "Local Ollama Models (100% Free Offline Coding)"),
+        }
         return status
 
     @staticmethod

@@ -93,8 +93,17 @@ def _rank_models(
     category: str,
     complexity: float,
 ) -> list[ModelConfig]:
-    """Return available models sorted by score, best first."""
+    """Return available models sorted by score, best first.
+
+    Local (Ollama) models are deprioritized when remote providers are also
+    available — they are free but may be offline, so they are only tried as
+    a last resort unless no remote providers are configured.
+    """
     scored: list[tuple[float, ModelConfig]] = []
+    has_remote = any(
+        m.provider != "local" and m.provider in config.available_providers
+        for m in config.models
+    )
     for model in config.available_models():
         s = _score_model(
             model,
@@ -104,6 +113,10 @@ def _rank_models(
             config.max_cost_per_call,
         )
         if s is not None:
+            # If remote providers are available, push local models to the back
+            # so we only fall back to Ollama if all remote calls fail.
+            if has_remote and model.provider == "local":
+                s = -1000.0 + s  # large negative keeps local at the end
             scored.append((s, model))
 
     # Sort descending by score, then alphabetically by model_id for stability
@@ -165,8 +178,10 @@ class Router:
 
         if not ranked:
             raise ProviderError(
-                "No providers available. Set at least one of: "
-                "ANTHROPIC_API_KEY, OPENAI_API_KEY, or run Ollama locally."
+                "No providers available. Configure at least one provider with:\n"
+                "  ijachi keys set <provider> <key>\n"
+                "Available providers: gemini, openai, anthropic, groq, deepseek, moonshot\n"
+                "Or run Ollama locally for a free offline option."
             )
 
         # 3. Optimize prompt for the top candidate

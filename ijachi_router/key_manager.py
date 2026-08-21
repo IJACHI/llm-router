@@ -29,8 +29,12 @@ _PROVIDER_ENV_VARS = {
     "sambanova": "SAMBANOVA_API_KEY",
     "bedrock": "AWS_ACCESS_KEY_ID",
     "azure": "AZURE_OPENAI_API_KEY",
-    "local": "OLLAMA_HOST",
+    # NOTE: "local" (Ollama) is intentionally excluded — it needs no API key.
+    # OLLAMA_HOST is a server binding setting, not an authentication secret.
 }
+
+# Env vars that must never be overwritten by the key manager
+_PROTECTED_ENV_VARS = {"OLLAMA_HOST"}
 
 
 def mask_secret(secret: str) -> str:
@@ -57,6 +61,9 @@ class KeyManager:
                     continue
                 key, val = line.split("=", 1)
                 key, val = key.strip(), val.strip().strip('"').strip("'")
+                # Never overwrite protected system env vars (e.g. OLLAMA_HOST)
+                if key in _PROTECTED_ENV_VARS:
+                    continue
                 if key and val and key not in os.environ:
                     os.environ[key] = val
         except Exception:
@@ -65,7 +72,16 @@ class KeyManager:
     def set_key(self, provider: str, key_value: str) -> str:
         """Set and save an API key for a provider."""
         provider_clean = provider.lower().strip()
+
+        # Local Ollama needs no API key — OLLAMA_HOST is a server setting, not a secret
+        if provider_clean == "local":
+            return "Local Ollama provider needs no API key. Set OLLAMA_HOST in your shell to point to a custom Ollama server."
+
         env_var = _PROVIDER_ENV_VARS.get(provider_clean, f"{provider_clean.upper()}_API_KEY")
+
+        # Safety: never write protected env vars to keys file
+        if env_var in _PROTECTED_ENV_VARS:
+            return f"'{env_var}' is a protected system variable and cannot be stored as a provider key."
 
         # Load existing keys
         existing: dict[str, str] = {}
