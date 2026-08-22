@@ -19,9 +19,11 @@ from __future__ import annotations
 import difflib
 from typing import Iterator
 
-from rich.console import Console, ConsoleRenderable
+from rich.console import ConsoleRenderable
 from rich.panel import Panel
 from rich.text import Text
+
+from ijachi_router.ui import _console as themed_console
 
 
 class DiffRenderer:
@@ -33,7 +35,6 @@ class DiffRenderer:
 
     def __init__(self, accessible: bool = False) -> None:
         self.accessible = accessible
-        self.console = Console()
 
     def render(
         self,
@@ -60,9 +61,9 @@ class DiffRenderer:
 
         return Panel(
             text,
-            title=f"[bold cyan]📝 Diff: {path}[/bold cyan]",
+            title=f"[bold]📝 Diff: {path}[/bold]",
             subtitle=f"[dim]{self._summarize(old_text, new_text)}[/dim]",
-            border_style="bright_blue",
+            border_style="banner.border",
             padding=(0, 1),
         )
 
@@ -78,7 +79,7 @@ class DiffRenderer:
         if isinstance(renderable, str):
             print(renderable)
         else:
-            self.console.print(renderable)
+            themed_console.print(renderable)
 
     def unified_diff_lines(
         self,
@@ -128,7 +129,6 @@ class InlineDiff:
 
     def __init__(self, accessible: bool = False) -> None:
         self.accessible = accessible
-        self.console = Console()
 
     def print(self, old: str, new: str, label: str = "Change") -> None:
         """Print an inline old → new pair."""
@@ -137,9 +137,9 @@ class InlineDiff:
             print(f"  - {old}")
             print(f"  + {new}")
             return
-        self.console.print(f"[bold yellow]{label}[/bold yellow]")
-        self.console.print(f"[red]- {old}[/red]")
-        self.console.print(f"[green]+ {new}[/green]")
+        themed_console.print(f"[bold warning]{label}[/bold warning]")
+        themed_console.print(f"[error]- {old}[/error]")
+        themed_console.print(f"[success]+ {new}[/success]")
 
 
 def render_edit_approval(

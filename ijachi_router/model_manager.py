@@ -32,7 +32,16 @@ class ModelManager:
         tags: list[str] | None = None,
     ) -> str:
         """Add a new model candidate definition to models.yaml."""
+        from ijachi_router.providers import REGISTRY
+
         tags = tags or ["simple-qa", "code"]
+        provider_clean = provider.lower().strip()
+        if provider_clean not in REGISTRY:
+            return (
+                f"Unknown provider '{provider}'. "
+                f"Choose from: {', '.join(sorted(REGISTRY.keys()))}"
+            )
+
         config = load_config(self.models_yaml)
 
         # Check if model already exists
@@ -42,7 +51,7 @@ class ModelManager:
 
         new_model = ModelConfig.from_dict({
             "model_id": model_id,
-            "provider": provider.lower().strip(),
+            "provider": provider_clean,
             "speed_tier": speed_tier.lower().strip(),
             "input_per_1k": input_per_1k,
             "output_per_1k": output_per_1k,

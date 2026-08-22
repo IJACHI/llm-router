@@ -1,6 +1,6 @@
 """Enhanced Interactive Prompt Engine for ijachi-code.
 
-Wraps prompt_toolkit.PromptSession to provide Claude Code-style terminal UX:
+Wraps prompt_toolkit.PromptSession to provide rich terminal UX:
 
 Prompt Features
 ---------------
@@ -178,7 +178,7 @@ def _make_toolbar(
     """Return a prompt_toolkit bottom_toolbar callable that renders the status bar.
 
     Args:
-        model: Current model name (e.g. 'claude-3-5-sonnet-20241022').
+        model: Current model name (e.g. 'gpt-4o').
         cwd: Current working directory.
         cost_usd: Cumulative session cost in USD.
         permission_mode: 'manual', 'accept-edits', 'plan', or 'auto'.
@@ -218,16 +218,16 @@ def _make_toolbar(
     def toolbar() -> HTML:
         parts = [
             f"<b>🤖 {model_short}</b>",
-            f"  <ansicyan>{cwd_str}</ansicyan>",
-            f"<ansigreen>{branch_str}</ansigreen>",
-            f"  <ansiblue>{ctx_bar}</ansiblue>",
+            f"  <ansigray>{cwd_str}</ansigray>",
+            f"<ansigray>{branch_str}</ansigray>",
+            f"  <ansicyan>{ctx_bar}</ansicyan>",
             f"  <ansiyellow>{cost_str}</ansiyellow>",
         ]
         if history_str:
-            parts.append(f"  <ansimagenta>{history_str}</ansimagenta>")
+            parts.append(f"  <ansigray>{history_str}</ansigray>")
         parts.append(f"  <ansigray>| {mode_label}</ansigray>")
         parts.append(f"  <ansigray>| {accept_str}</ansigray>")
-        parts.append(f"  <ansigray>| esc interrupt | ctrl+t tasks | ctrl+o transcript</ansigray>")
+        parts.append(f"  <ansigray>| esc interrupt · ctrl+t tasks · ctrl+o transcript · ctrl+s stash</ansigray>")
         if agent_str:
             parts.append(f"  <ansiyellow>{agent_str}</ansiyellow>")
         if toast_badge:
@@ -273,7 +273,7 @@ _HELP_TEXT = r"""
 ║  @<path>            Insert file path autocomplete                  ║
 ║  /<command>         Open slash-command launcher                    ║
 ║  /mode              Cycle permission mode                            ║
-║  /init              Generate CLAUDE.md context file                ║
+║  /init              Generate AGENTS.md context file                ║
 ║  !<cmd>             Run shell command inline                      ║
 ║  ?                  Show this help (from empty prompt)             ║
 ║  exit / quit        End session                                    ║
@@ -287,6 +287,18 @@ _HELP_TEXT = r"""
 _stash: list[str] = []  # Simple one-slot stash
 
 
+def _stash_handler(event) -> None:
+    """Stash the current draft or restore a previously stashed one (Ctrl+S)."""
+    buf = event.current_buffer
+    if buf.text.strip():
+        _stash.clear()
+        _stash.append(buf.text)
+        buf.set_document(type(buf.document)("", 0))
+        event.app.output.write("\n[Draft stashed. Press Ctrl+S again to restore.]\n")
+    elif _stash:
+        buf.insert_text(_stash.pop())
+
+
 # ---------------------------------------------------------------------------
 # PromptEngine
 # ---------------------------------------------------------------------------
@@ -294,7 +306,7 @@ _stash: list[str] = []  # Simple one-slot stash
 class PromptEngine:
     """Enhanced prompt session wrapping prompt_toolkit for ijachi-code.
 
-    Provides all Claude Code-style prompt features: multi-line input, file
+    Provides rich terminal prompt features: multi-line input, file
     autocomplete, slash commands, shell mode, paste collapse, history search,
     draft stash, and keybindings.
 
@@ -396,15 +408,8 @@ class PromptEngine:
             buf.insert_text("\n")
 
         @kb.add("c-s")  # Ctrl+S → stash / restore draft
-        def _stash(event):
-            buf = event.current_buffer
-            if buf.text.strip():
-                _stash.clear()  # type: ignore[attr-defined]
-                _stash.append(buf.text)
-                buf.set_document(type(buf.document)("", 0))
-                event.app.output.write("\n[Draft stashed. Press Ctrl+S again to restore.]\n")
-            elif _stash:
-                buf.insert_text(_stash.pop())
+        def _c_stash(event):
+            _stash_handler(event)
 
         @kb.add("c-l")  # Ctrl+L → clear screen
         def _clear(event):

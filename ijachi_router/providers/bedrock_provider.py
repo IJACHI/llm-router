@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from ijachi_router.providers.base import Provider, ProviderError
+from ijachi_router.providers.base import Provider, ProviderError, _messages_with_system_prompt
 
 
 class BedrockProvider(Provider):
@@ -31,10 +31,11 @@ class BedrockProvider(Provider):
             region = os.environ.get("AWS_REGION", "us-east-1")
             client = boto3.client("bedrock-runtime", region_name=region)
 
+            messages = _messages_with_system_prompt(prompt, **kwargs)
             payload = {
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": kwargs.get("max_tokens", 1024),
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
             }
 
             response = client.invoke_model(
@@ -75,10 +76,11 @@ class BedrockProvider(Provider):
             import boto3
             region = os.environ.get("AWS_REGION", "us-east-1")
             client = boto3.client("bedrock-runtime", region_name=region)
+            messages = _messages_with_system_prompt(prompt, **kwargs)
             payload = {
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": kwargs.get("max_tokens", 1024),
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
             }
             response = client.invoke_model_with_response_stream(
                 modelId=self.model_id,

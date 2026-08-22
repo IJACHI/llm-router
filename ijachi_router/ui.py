@@ -10,6 +10,7 @@ Themes
 - ansi       : Pure ANSI 16-color, compatible with all terminals
 - accessible : High-contrast sequential output for screen readers
 - auto       : Follows terminal COLORFGBG hint; falls back to 'dark'
+- coral      : Coral/orange terminal palette (chat default)
 
 Usage
 -----
@@ -24,9 +25,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from rich.console import Console
+from rich import box
+from rich.console import Console, Group
+from rich.columns import Columns
 from rich.panel import Panel
 from rich.style import Style
 from rich.text import Text
@@ -38,7 +41,7 @@ from rich.theme import Theme
 # Theme definitions
 # ---------------------------------------------------------------------------
 
-ThemeName = Literal["dark", "light", "ansi", "accessible", "auto"]
+ThemeName = Literal["dark", "light", "ansi", "accessible", "auto", "coral"]
 
 _THEMES: dict[str, Theme] = {
     "dark": Theme({
@@ -110,6 +113,24 @@ _THEMES: dict[str, Theme] = {
         "warning":        "bold",
         "error":          "bold",
         "success":        "bold",
+    }),
+    "coral": Theme({
+        # Coral/orange on dark navy
+        "banner":         "bold #e08e79",
+        "banner.sub":     "dim #e08e79 italic",
+        "banner.border":  "#4a4a5a",
+        "banner.title":   "bold #e08e79",
+        "banner.version": "dim #7a7a8a",
+        "status.active":  "bold white on #2d8a5e",
+        "status.unset":   "white on #8a2d2d",
+        "status.free":    "bold white on #3a5a8a",
+        "tool.output":    "dim #c9a66b",
+        "user.label":     "bold #e08e79",
+        "assistant.label":"bold #7eb77f",
+        "info":           "dim #9a9aaa",
+        "warning":        "bold #e0a86e",
+        "error":          "bold #d86a6a",
+        "success":        "bold #7eb77f",
     }),
 }
 
@@ -184,6 +205,16 @@ def list_themes() -> list[str]:
 # Banner
 # ---------------------------------------------------------------------------
 
+_ROBOT_MASCOT = r"""
+     ██████████
+   ██  ▓▓▓▓  ██
+   ██ ▓ ■■ ▓ ██
+   ██ ▓  ▼  ▓ ██
+     ██████████
+   ██  █  █  ██
+    ██ █  █ ██
+"""
+
 _BANNER_ART = r"""
  ██   ███████   █████    ██████  ██   ██  ██
  ██        ██  ██   ██  ██       ██   ██  ██
@@ -199,7 +230,7 @@ _APP_TAGLINE = "⚡ One Prompt. Best Model. Zero Watermarks. OWASP Secured."
 # Quick onboarding tips
 _TIPS = [
     "Type /help for slash commands and keybindings",
-    "Type /init to generate a CLAUDE.md context file",
+    "Type /init to generate an AGENTS.md context file",
     "Use @filename for file-path autocomplete",
     "Press Ctrl+T to toggle the live task checklist",
     "Press Ctrl+O to open the transcript viewer",
@@ -237,12 +268,23 @@ def print_banner() -> None:
     _console.print(get_neon_banner())
 
 
+def double_border_panel(renderable, title: str | None = None) -> Panel:
+    """Wrap *renderable* in a double-bordered panel."""
+    return Panel(
+        renderable,
+        title=f"[banner.title]{title}[/banner.title]" if title else None,
+        box=box.DOUBLE,
+        border_style="banner.border",
+        padding=(1, 2),
+    )
+
+
 def get_welcome_card(
     model: str = "auto",
     billing: str = "API Usage Billing",
     workspace: str | None = None,
 ) -> Panel:
-    """Render the branded welcome card with metadata and tips.
+    """Render the welcome card with mascot, metadata, tips, and news.
 
     Args:
         model: Active model label (e.g. 'kimi-k2.7-code:cloud').
@@ -250,49 +292,52 @@ def get_welcome_card(
         workspace: Current working directory. Defaults to ``Path.cwd()``.
 
     Returns:
-        A Rich Panel combining banner, metadata, tips, and release notes.
+        A double-bordered Rich Panel with a two-column layout.
     """
     if workspace is None:
         workspace = str(Path.cwd())
     home = str(Path.home())
     workspace_display = workspace.replace(home, "~")
 
-    banner = get_neon_banner()
-
-    meta_table = Table(show_header=False, box=None, padding=(0, 1))
-    meta_table.add_column(style="info", width=18)
-    meta_table.add_column(style="white")
-    meta_table.add_row("Version", _APP_VERSION)
-    meta_table.add_row("Active Model", model)
-    meta_table.add_row("Billing", billing)
-    meta_table.add_row("Workspace", workspace_display)
-
-    tips = Text.from_markup("\n".join(f"  • {tip}" for tip in _TIPS))
-
-    release_table = Table(show_header=True, box=None, padding=(0, 1))
-    release_table.add_column("Version", style="bold cyan", width=10)
-    release_table.add_column("What's New", style="white")
-    for version, note in _RELEASE_NOTES:
-        release_table.add_row(version, note)
-
-    body = Text.assemble(
+    # Left column: greeting, mascot, session context.
+    mascot = Text(_ROBOT_MASCOT, style="banner", justify="center")
+    greeting = Text.from_markup("[bold]Welcome back![/bold]", justify="center")
+    context = Text.from_markup(
+        f"[dim]{model}[/dim] · [dim]{billing}[/dim]\n[dim]{workspace_display}[/dim]",
+        justify="center",
+    )
+    left = Group(
+        greeting,
         Text("\n"),
-        Text.from_markup("[bold cyan]Session Context[/bold cyan]\n"),
-        meta_table,
+        mascot,
         Text("\n"),
-        Text.from_markup("[bold cyan]Tips & Getting Started[/bold cyan]\n"),
-        tips,
-        Text("\n"),
-        Text.from_markup("[bold cyan]What's New[/bold cyan]\n"),
-        release_table,
+        context,
     )
 
-    return Panel(
-        body,
-        border_style="banner.border",
-        padding=(1, 2),
-        title=f"[banner.title]✨ IJACHI AGENTIC PLATFORM ✨[/banner.title]",
-        subtitle=f"[banner.version]{_APP_VERSION}[/banner.version]",
+    # Right column: tips and release notes.
+    tips_title = Text.from_markup("[bold]Tips for getting started[/bold]")
+    tips_body = Text.from_markup("\n".join(f"  • {tip}" for tip in _TIPS))
+
+    news_title = Text.from_markup("\n[bold]What's new[/bold]")
+    news_lines = [Text.from_markup(f"  • {note}") for _, note in _RELEASE_NOTES[:3]]
+    news_body = Text("\n").join(news_lines)
+
+    right = Group(tips_title, Text("\n"), tips_body, news_title, Text("\n"), news_body)
+
+    # Two-column layout; left column is narrower so the mascot + context sit together.
+    layout = Columns(
+        [
+            Panel(left, box=box.MINIMAL, padding=(0, 0)),
+            Panel(right, box=box.MINIMAL, padding=(0, 0)),
+        ],
+        equal=False,
+        expand=True,
+        width=32,
+    )
+
+    return double_border_panel(
+        layout,
+        title=f"ijachi-code  {_APP_VERSION}",
     )
 
 
@@ -400,6 +445,116 @@ def cycle_permission_mode(current: str) -> str:
         return PERMISSION_MODES[(idx + 1) % len(PERMISSION_MODES)]
     except ValueError:
         return PERMISSION_MODES[0]
+
+
+
+# ---------------------------------------------------------------------------
+# Chat message renderer
+# ---------------------------------------------------------------------------
+
+class ChatMessageRenderer:
+    """Render chat turns as user/assistant blocks.
+
+    Args:
+        accessible: If True, render plain text instead of Rich panels.
+    """
+
+    def __init__(self, accessible: bool = False) -> None:
+        self.accessible = accessible
+
+    def render_user_prompt(self, prompt: str, telemetry_summary: str = "") -> str | Panel:
+        """Render a user prompt in a dark disclosure bar."""
+        if self.accessible:
+            lines = [f"you: {prompt}"]
+            if telemetry_summary:
+                lines.append(f"telemetry: {telemetry_summary}")
+            return "\n".join(lines)
+
+        body_parts: list[Text] = [Text(prompt)]
+        if telemetry_summary:
+            body_parts.append(Text.from_markup(f"\n[dim]{telemetry_summary}[/dim]"))
+        return Panel(
+            Text("").join(body_parts),
+            title="[user.label]▶ you[/user.label]",
+            border_style="banner.border",
+            padding=(0, 1),
+        )
+
+    def render_assistant_response(
+        self,
+        text: str,
+        model: str = "",
+        provider: str = "",
+        cost_usd: float = 0.0,
+        telemetry_summary: str = "",
+    ) -> str | Panel:
+        """Render an assistant response with header metadata."""
+        if self.accessible:
+            lines = [f"ijachi: {text}"]
+            if model:
+                lines.append(f"model: {model}")
+            if cost_usd:
+                lines.append(f"cost: ${cost_usd:.4f}")
+            if telemetry_summary:
+                lines.append(f"telemetry: {telemetry_summary}")
+            return "\n".join(lines)
+
+        header_parts: list[str] = []
+        if model:
+            header_parts.append(model)
+        if provider:
+            header_parts.append(f"via {provider}")
+        if cost_usd:
+            header_parts.append(f"${cost_usd:.4f}")
+        header = " · ".join(header_parts)
+        title = f"[assistant.label]▶ ijachi[/assistant.label]"
+        if header:
+            title += f"  [dim]{header}[/dim]"
+
+        body_parts: list[Text] = [Text(text)]
+        if telemetry_summary:
+            body_parts.append(Text.from_markup(f"\n[dim]{telemetry_summary}[/dim]"))
+        return Panel(
+            Text("").join(body_parts),
+            title=title,
+            border_style="banner.border",
+            padding=(0, 1),
+        )
+
+    def render_tool_calls(
+        self,
+        tool_calls: list[dict[str, Any]],
+        expanded: bool = False,
+    ) -> str | Panel:
+        """Render a collapsible list of tool calls."""
+        if not tool_calls:
+            return "" if self.accessible else Text("")
+
+        if self.accessible:
+            lines = ["tools:"]
+            for tc in tool_calls:
+                name = tc.get("tool_name", "tool")
+                args = tc.get("args", {})
+                lines.append(f"  - {name}({', '.join(args.keys())})")
+            return "\n".join(lines)
+
+        lines: list[Text] = []
+        for tc in tool_calls:
+            name = tc.get("tool_name", "tool")
+            args = tc.get("args", {})
+            output = tc.get("output", "")
+            arg_summary = ", ".join(args.keys()) if not expanded else str(args)
+            line = Text.from_markup(f"  [warning]⚙[/warning] [bold]{name}[/bold]([dim]{arg_summary}[/dim])")
+            lines.append(line)
+            if expanded and output:
+                lines.append(Text.from_markup(f"     [dim]{output[:200]}{'...' if len(output) > 200 else ''}[/dim]"))
+
+        return Panel(
+            Text("\n").join(lines),
+            title="[dim]tools[/dim]",
+            border_style="banner.border",
+            padding=(0, 1),
+        )
 
 
 # ---------------------------------------------------------------------------

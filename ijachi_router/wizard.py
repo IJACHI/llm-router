@@ -16,7 +16,7 @@ from ijachi_router.key_manager import KeyManager, _PROVIDER_ENV_VARS
 console = Console()
 
 _PROVIDER_DESCRIPTIONS = {
-    "anthropic": "Claude 3.7 Sonnet, Claude 3.5 Haiku (Enterprise Reasoning & Coding)",
+    "anthropic": "Sonnet 3.7, Haiku 3.5 (Enterprise Reasoning & Coding)",
     "openai": "GPT-4o, GPT-4o-mini (General QA, Coding, Math)",
     "gemini": "Gemini 2.5 Flash, Gemini 2.5 Pro (Google High-Speed Multimodal)",
     "deepseek": "DeepSeek V3, DeepSeek R1 Reasoner (Low-Cost Frontier Reasoning)",
@@ -52,10 +52,22 @@ class LauncherWizard:
                 "active": is_active,
                 "description": _PROVIDER_DESCRIPTIONS.get(p, "LLM Service Provider"),
             }
-        # Local Ollama always appears in the table — it needs no API key
+        # Local Ollama: show active only if the server is reachable
+        try:
+            from ijachi_router.providers.local_provider import LocalProvider
+            from ijachi_router.providers.base import ProviderError
+            local_provider = LocalProvider(model_id="__ping__", pricing={"input_per_1k": 0, "output_per_1k": 0})
+            local_reachable = True
+            try:
+                local_provider._ping()
+            except ProviderError:
+                local_reachable = False
+        except Exception:
+            local_reachable = False
+
         status["local"] = {
             "env_var": "OLLAMA_HOST",
-            "active": True,
+            "active": local_reachable,
             "description": _PROVIDER_DESCRIPTIONS.get("local", "Local Ollama Models (100% Free Offline Coding)"),
         }
         return status

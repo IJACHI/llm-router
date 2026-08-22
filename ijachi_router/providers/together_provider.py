@@ -1,5 +1,5 @@
 import os
-from ijachi_router.providers.base import Provider, ProviderError, _stream_openai_compatible
+from ijachi_router.providers.base import Provider, ProviderError, _messages_with_system_prompt, _stream_openai_compatible
 
 
 class TogetherProvider(Provider):
@@ -21,7 +21,7 @@ class TogetherProvider(Provider):
             client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
             resp = client.chat.completions.create(
                 model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
+                messages=_messages_with_system_prompt(prompt, **kwargs),
                 max_tokens=kwargs.get("max_tokens", 1024),
             )
             text = resp.choices[0].message.content or ""

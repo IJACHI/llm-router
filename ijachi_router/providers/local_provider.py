@@ -16,15 +16,25 @@ class LocalProvider(Provider):
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         if not host.startswith(("http://", "https://")):
             host = f"http://{host}"
+
+        # Ollama's /api/generate has no system role; prepend system prompt if given.
+        system_prompt = kwargs.get("system_prompt")
+        full_prompt = prompt
+        if system_prompt:
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+
         try:
             resp = requests.post(
                 f"{host}/api/generate",
-                json={"model": self.model_id, "prompt": prompt, "stream": False},
+                json={"model": self.model_id, "prompt": full_prompt, "stream": False},
                 timeout=kwargs.get("timeout", 120),
             )
             resp.raise_for_status()
         except requests.RequestException as e:
-            raise ProviderError(f"could not reach Ollama at {host}: {e}") from e
+            raise ProviderError(
+                f"Could not reach Ollama at {host}: {e}\n"
+                f"Make sure Ollama is running ('ollama serve') and the model is pulled ('ollama pull {self.model_id}')."
+            ) from e
 
         data = resp.json()
         text = data.get("response", "")
@@ -41,16 +51,25 @@ class LocalProvider(Provider):
             resp = requests.get(f"{host}/api/tags", timeout=5)
             resp.raise_for_status()
         except Exception as err:
-            raise ProviderError(f"could not reach Ollama at {host}: {err}") from err
+            raise ProviderError(
+                f"Could not reach Ollama at {host}: {err}\n"
+                f"Make sure Ollama is running ('ollama serve')."
+            ) from err
 
     def _stream(self, prompt: str, **kwargs):
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         if not host.startswith(("http://", "https://")):
             host = f"http://{host}"
+
+        system_prompt = kwargs.get("system_prompt")
+        full_prompt = prompt
+        if system_prompt:
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+
         try:
             resp = requests.post(
                 f"{host}/api/generate",
-                json={"model": self.model_id, "prompt": prompt, "stream": True},
+                json={"model": self.model_id, "prompt": full_prompt, "stream": True},
                 stream=True,
                 timeout=kwargs.get("timeout", 120),
             )

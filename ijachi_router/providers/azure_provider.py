@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from ijachi_router.providers.base import Provider, ProviderError
+from ijachi_router.providers.base import Provider, ProviderError, _messages_with_system_prompt
 
 
 class AzureOpenAIProvider(Provider):
@@ -34,7 +34,7 @@ class AzureOpenAIProvider(Provider):
             )
             resp = client.chat.completions.create(
                 model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
+                messages=_messages_with_system_prompt(prompt, **kwargs),
                 max_tokens=kwargs.get("max_tokens", 1024),
             )
             text = resp.choices[0].message.content or ""

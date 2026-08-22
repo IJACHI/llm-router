@@ -9,6 +9,16 @@ from dataclasses import dataclass
 from typing import Iterator
 
 
+def _messages_with_system_prompt(prompt: str, **kwargs) -> list[dict[str, str]]:
+    """Return an OpenAI-compatible messages list with optional system prompt."""
+    system_prompt = kwargs.get("system_prompt")
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
 def _stream_openai_compatible(
     api_key: str,
     model_id: str,

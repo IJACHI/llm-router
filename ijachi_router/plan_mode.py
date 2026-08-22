@@ -1,11 +1,11 @@
 """Plan Mode workflow for ijachi-code.
 
-Implements Claude Code-style planning:
+Implements structured plan mode execution:
   - Enter / exit plan mode
-  - Generate a structured `.claude/plan.md` from a task description
+  - Generate a structured `.router/plan.md` from a task description
   - Show a truncated preview with line counts
   - Confirm with the user before any code modifications
-  - Generate `CLAUDE.md` context files on demand via `/init`
+  - Generate `AGENTS.md` context files on demand via `/init`
 
 Usage
 -----
@@ -24,15 +24,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.text import Text
 
 from ijachi_router.core import route
-
-
-console = Console()
+from ijachi_router.ui import _console as console
 
 _PLAN_SYSTEM_PROMPT = """You are ijachi-code's planning assistant.
 
@@ -46,10 +43,10 @@ The plan should include:
 
 Do not write code. Do not execute tools. Only produce the plan document."""
 
-_CLAUDE_MD_PROMPT = """You are ijachi-code's context assistant.
+_AGENTS_MD_PROMPT = """You are ijachi-code's context assistant.
 
 Read the workspace files described in the user's prompt and produce a concise
-CLAUDE.md context file for this project. The output should be valid Markdown
+AGENTS.md context file for this project. The output should be valid Markdown
 and include:
 - Project purpose and architecture overview
 - Key files and their roles
@@ -81,7 +78,7 @@ class PlanModePlanner:
     ) -> None:
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
         self.accessible = accessible
-        self.plan_dir = self.workspace_root / ".claude"
+        self.plan_dir = self.workspace_root / ".router"
         self.plan_file = self.plan_dir / "plan.md"
 
     def plan(
@@ -89,7 +86,7 @@ class PlanModePlanner:
         task: str,
         preview_lines: int = 20,
     ) -> PlanPreview:
-        """Generate a plan from *task*, save it to `.claude/plan.md`, and return a preview.
+        """Generate a plan from *task*, save it to `.router/plan.md`, and return a preview.
 
         Args:
             task: The user's high-level task description.
@@ -164,34 +161,37 @@ class PlanModePlanner:
         preview.approved = approved
         return approved
 
-    def generate_claude_md(self, workspace_summary: str = "") -> Path:
-        """Generate a CLAUDE.md context file for the workspace.
+    def generate_agents_md(self, workspace_summary: str = "") -> Path:
+        """Generate an AGENTS.md context file for the workspace.
 
         Args:
             workspace_summary: Optional summary of the workspace to guide generation.
 
         Returns:
-            Path to the generated CLAUDE.md file.
+            Path to the generated AGENTS.md file.
         """
-        self._announce("Generating CLAUDE.md")
-        prompt = "Generate a CLAUDE.md context file for this project."
+        self._announce("Generating AGENTS.md")
+        prompt = "Generate an AGENTS.md context file for this project."
         if workspace_summary:
             prompt += f"\n\nWorkspace summary:\n{workspace_summary}"
         try:
             res = route(
                 prompt=prompt,
-                system_prompt=_CLAUDE_MD_PROMPT,
+                system_prompt=_AGENTS_MD_PROMPT,
                 priority="quality",
                 max_tokens=4096,
             )
             content = res.text
         except Exception as exc:
-            content = f"# CLAUDE.md generation failed\n\n{exc}\n\nPlease write this file manually."
+            content = f"# AGENTS.md generation failed\n\n{exc}\n\nPlease write this file manually."
 
-        claude_md = self.workspace_root / "CLAUDE.md"
-        claude_md.write_text(content, encoding="utf-8")
-        self._announce(f"Wrote {len(content.splitlines())} lines to {claude_md}")
-        return claude_md
+        agents_md = self.workspace_root / "AGENTS.md"
+        agents_md.write_text(content, encoding="utf-8")
+        self._announce(f"Wrote {len(content.splitlines())} lines to {agents_md}")
+        return agents_md
+
+    generate_claude_md = generate_agents_md
+
 
     def clear_plan(self) -> None:
         """Remove the generated plan file if it exists."""
@@ -207,8 +207,8 @@ class PlanModePlanner:
         if self.accessible:
             print(f"plan: {message}")
         else:
-            marker = "●" if "Entered" in message or "Generating" in message else "●"
-            console.print(f"[bold magenta]{marker} {message}[/bold magenta]")
+            marker = "●"
+            console.print(f"[banner.title]{marker} {message}[/banner.title]")
 
     def _show_preview(self, preview: PlanPreview) -> None:
         """Render the plan preview panel."""
@@ -229,9 +229,9 @@ class PlanModePlanner:
         body = Text("\n").join(body_lines) if body_lines else Text("(empty plan)")
         panel = Panel(
             body,
-            title=f"[bold cyan]📝 Plan Preview[/bold cyan]",
+            title=f"[bold]📝 Plan Preview[/bold]",
             subtitle=f"[dim]Wrote {preview.total_lines} lines to {preview.plan_path}[/dim]",
-            border_style="magenta",
+            border_style="banner.border",
             padding=(0, 1),
         )
         console.print(panel)

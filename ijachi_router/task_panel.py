@@ -23,10 +23,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Iterator
 
-from rich.console import Console, ConsoleRenderable
+from rich.console import ConsoleRenderable
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
+
+from ijachi_router.ui import _console as themed_console
 
 
 class TaskStatus:
@@ -78,7 +80,6 @@ class TaskPanel:
         self._tokens_out = 0
         self._state = "thinking"
         self._live: Live | None = None
-        self._console = Console()
 
     # ------------------------------------------------------------------
     # Item management
@@ -147,7 +148,12 @@ class TaskPanel:
         if self._live is not None:
             return
         self._start_time = time.monotonic()
-        self._live = Live(self.render(), refresh_per_second=4, transient=False)
+        self._live = Live(
+            self.render(),
+            refresh_per_second=4,
+            transient=False,
+            console=themed_console,
+        )
         self._live.start()
 
     def stop(self) -> None:
@@ -184,11 +190,11 @@ class TaskPanel:
                 visible_completed += 1
                 dur = self._format_duration(item.duration)
                 meta = f" {item.metadata}" if item.metadata else ""
-                lines.append(Text.from_markup(f"  [green]✔[/green] {item.label} [dim]({dur}){meta}[/dim]"))
+                lines.append(Text.from_markup(f"  [success]✔[/success] {item.label} [dim]({dur}){meta}[/dim]"))
             elif item.status == TaskStatus.ACTIVE:
-                lines.append(Text.from_markup(f"  [bright_yellow]■[/bright_yellow] {item.label}"))
+                lines.append(Text.from_markup(f"  [warning]■[/warning] {item.label}"))
             else:
-                lines.append(Text.from_markup(f"  [dim]□[/dim] {item.label}"))
+                lines.append(Text.from_markup(f"  [info]□[/info] {item.label}"))
 
         if completed_hidden:
             lines.append(Text.from_markup(f"  [dim].. +{completed_hidden} completed[/dim]"))
@@ -196,8 +202,8 @@ class TaskPanel:
         body = Text("\n").join(lines) if lines else Text("  [dim](no tasks)[/dim]")
         return Panel(
             body,
-            title=f"[bold cyan]📋 Tasks[/bold cyan]  [dim]{header}[/dim]",
-            border_style="cyan",
+            title=f"[bold]📋 Tasks[/bold]  [dim]{header}[/dim]",
+            border_style="banner.border",
             padding=(0, 1),
         )
 

@@ -1,7 +1,7 @@
-"""REST API Gateway & Web Telemetry Dashboard Server for ijachi-llm-router Pro.
+"""REST API Gateway & Web Telemetry Dashboard Server for ijachi-llm-router.
 
 Uses Python standard library http.server for zero external web framework dependencies.
-Gated behind Pro tier license key verification.
+Local endpoints are ungated so the open-source CLI and SDKs work out of the box.
 """
 
 from __future__ import annotations
@@ -165,17 +165,6 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/v1/stats":
-            if not self._verify_auth():
-                self._send_json(
-                    403,
-                    {
-                        "error": "Pro License Required",
-                        "message": "Include a valid Pro license key in header: Authorization: Bearer IJPRO-...",
-                        "paystack_url": "https://paystack.shop/pay/enlqpvzflw",
-                    },
-                )
-                return
-
             records = load_history()
             total_calls = len(records)
             total_cost = sum(r.get("cost_usd", 0.0) for r in records)
@@ -212,17 +201,6 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path == "/v1/route":
-            if not self._verify_auth():
-                self._send_json(
-                    403,
-                    {
-                        "error": "Pro License Required",
-                        "message": "Include a valid Pro license key in header: Authorization: Bearer IJPRO-...",
-                        "paystack_url": "https://paystack.shop/pay/enlqpvzflw",
-                    },
-                )
-                return
-
             content_length = int(self.headers.get("Content-Length", 0))
             body_bytes = self.rfile.read(content_length)
             try:
@@ -257,17 +235,6 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/v1/agent/run":
-            if not self._verify_auth():
-                self._send_json(
-                    403,
-                    {
-                        "error": "Pro License Required",
-                        "message": "Include a valid Pro license key in header: Authorization: Bearer IJPRO-...",
-                        "paystack_url": "https://paystack.shop/pay/enlqpvzflw",
-                    },
-                )
-                return
-
             content_length = int(self.headers.get("Content-Length", 0))
             body_bytes = self.rfile.read(content_length)
             try:

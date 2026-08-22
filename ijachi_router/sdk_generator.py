@@ -31,20 +31,24 @@ export interface RouteResponse {
 
 export async function route(options: RouteOptions): Promise<RouteResponse> {
   const baseUrl = options.baseUrl || 'http://127.0.0.1:8000';
-  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const payload: Record<string, any> = {
+    prompt: options.prompt,
+    priority: options.priority || 'balanced',
+  };
+  if (options.maxCost !== undefined) {
+    payload.max_cost = options.maxCost;
+  }
+  const response = await fetch(`${baseUrl}/v1/route`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: options.priority || 'quality',
-      messages: [{ role: 'user', content: options.prompt }],
-    }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     throw new Error(`Router error: ${response.statusText}`);
   }
   const data = await response.json();
   return {
-    text: data.choices[0].message.content,
+    text: data.text,
     model: data.model,
     provider: data.provider || 'unknown',
     costUsd: data.cost_usd || 0.0,
@@ -74,13 +78,16 @@ func NewClient(baseURL string) *RouterClient {
 	return &RouterClient{BaseURL: baseURL}
 }
 
-func (c *RouterClient) Route(prompt string, priority string) (string, error) {
+func (c *RouterClient) Route(prompt string, priority string, maxCost ...float64) (string, error) {
 	payload := map[string]interface{}{
-		"model": priority,
-		"messages": []map[string]string{{"role": "user", "content": prompt}},
+		"prompt":   prompt,
+		"priority": priority,
+	}
+	if len(maxCost) > 0 {
+		payload["max_cost"] = maxCost[0]
 	}
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(c.BaseURL+"/v1/chat/completions", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post(c.BaseURL+"/v1/route", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return "", err
 	}
@@ -89,11 +96,10 @@ func (c *RouterClient) Route(prompt string, priority string) (string, error) {
 		return "", fmt.Errorf("router error: %s", resp.Status)
 	}
 	var res map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&res)
-	choices := res["choices"].([]interface{})
-	first := choices[0].(map[string]interface{})
-	msg := first["message"].(map[string]interface{})
-	return msg["content"].(string), nil
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+	return res["text"].(string), nil
 }
 """
 

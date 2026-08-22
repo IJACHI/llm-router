@@ -18,9 +18,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+
+from ijachi_router.ui import _console as themed_console
 
 
 class ToastLevel(Enum):
@@ -58,7 +59,6 @@ class ToastManager:
     def _reset(self) -> None:
         """Clear the toast queue (mostly useful for tests)."""
         self.toasts: list[Toast] = []
-        self._console = Console()
 
     # ------------------------------------------------------------------
     # Queue management
@@ -125,7 +125,7 @@ class ToastManager:
             ToastLevel.ERROR: "✗",
         }
         icon = icon_map.get(toast.level, "•")
-        self._console.print(
+        themed_console.print(
             Panel(
                 Text(toast.message),
                 title=f"[bold {color}]{icon} {toast.level.value.upper()}[/bold {color}]",

@@ -66,7 +66,7 @@ class TranscriptTurn:
     tool_calls: list[ToolCall] = field(default_factory=list)
     """Tool calls made during this assistant turn."""
     telemetry_summary: str = ""
-    """Claude Code-style telemetry roll-up for this turn (e.g. 'read 2 files, ran 1 command')."""
+    """Turn telemetry roll-up for this turn (e.g. 'read 2 files, ran 1 command')."""
 
 
 # ---------------------------------------------------------------------------

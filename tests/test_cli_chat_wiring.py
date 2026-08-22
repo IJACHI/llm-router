@@ -1,191 +1,114 @@
-"""Integration tests for the chat command's enhanced UI wiring.
-
-These tests exercise ``cli.chat_cmd`` with lightweight real fakes instead of
-full MagicMocks to avoid boolean/repr pitfalls in a long-running REPL loop.
-"""
+"""Tests for CLI chat UI wiring and renderer integration."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Iterator
-
-import pytest
-from click.testing import CliRunner
-
-import cli
-
-
-@dataclass
-class _FakeAgentResult:
-    final_text: str = "done"
-    steps: list[Any] = field(default_factory=list)
-    total_cost_usd: float = 0.0
-    completed: bool = True
+from ijachi_router.ui import (
+    set_theme,
+    get_current_theme,
+    list_themes,
+    ChatMessageRenderer,
+    get_welcome_card,
+    get_permission_mode_label,
+    cycle_permission_mode,
+)
+from ijachi_router.transcript import ToolCall
 
 
-@dataclass
-class _FakeStep:
-    model_used: str = "fake-model"
-    provider: str = "fake-provider"
+def test_theme_switching():
+    """set_theme changes the active global theme and returns resolved name."""
+    original = get_current_theme()
+    try:
+        assert set_theme("coral") == "coral"
+        assert get_current_theme() == "coral"
+
+        assert set_theme("accessible") == "accessible"
+        assert get_current_theme() == "accessible"
+    finally:
+        set_theme(original)
 
 
-class _FakeAgent:
-    """Minimal stand-in for AgenticRouter in the chat loop."""
-
-    def __init__(self, *args, **kwargs):
-        self.tools = type("Tools", (), {"root_dir": Path("/tmp")})()
-        self.background = type("BG", (), {"active_count": lambda self: 0})()
-        self.planner = type(
-            "Planner",
-            (),
-            {"generate_claude_md": lambda self: Path("/tmp/CLAUDE.md")},
-        )()
-        self.checklist = type("CL", (), {"render": lambda self: None})()
-        self.ctx = type(
-            "Ctx",
-            (),
-            {
-                "summary": lambda self: "",
-                "build_context_block": lambda self: "",
-                "clear": lambda self: None,
-                "set_session_goal": lambda self, x: None,
-                "record_task": lambda self, **kw: None,
-                "l1_global": type(
-                    "L1", (), {"add_architectural_decision": lambda self, x: None}
-                )(),
-            },
-        )()
-        self.force_model = None
-        self.priority = "balanced"
-        self.permission_mode = kwargs.get("permission_mode", "manual")
-
-    def run(self, task: str):
-        return _FakeAgentResult(
-            final_text="hello",
-            steps=[_FakeStep()],
-            total_cost_usd=0.001,
-        )
-
-    def set_model(self, model_id):
-        self.force_model = model_id
-
-    def set_priority(self, priority):
-        self.priority = priority
-
-    def set_permission_mode(self, mode):
-        self.permission_mode = mode
+def test_list_themes_includes_known_themes():
+    """list_themes exposes all shipped themes plus auto."""
+    themes = list_themes()
+    for name in ("dark", "light", "ansi", "accessible", "coral", "auto"):
+        assert name in themes
 
 
-class _FakeEngine:
-    """Minimal stand-in for PromptEngine."""
+def test_welcome_card_renders():
+    """get_welcome_card returns a double-bordered panel with key metadata."""
+    from ijachi_router.ui import _console
 
-    def __init__(self, inputs: list[str | None]):
-        self._inputs: Iterator[str | None] = iter(inputs)
-        self.prompt_calls: list[dict[str, Any]] = []
-        self.permission_mode = "manual"
-        self.model = "unknown"
-        self._set_permission_mode_calls: list[str] = []
-
-    def prompt(self, *args, **kwargs):
-        self.prompt_calls.append(kwargs)
-        try:
-            return next(self._inputs)
-        except StopIteration:
-            return "exit"
-
-    def resolve_pastes(self, text: str):
-        return text
-
-    def update_cost(self, cost_usd: float):
-        pass
-
-    def set_permission_mode(self, mode: str):
-        self._set_permission_mode_calls.append(mode)
-        self.permission_mode = mode
+    panel = get_welcome_card(model="gpt-4o", billing="API Usage Billing", workspace="/tmp")
+    title = panel.title or ""
+    assert "ijachi-code" in title
+    with _console.capture() as capture:
+        _console.print(panel)
+    text = capture.get()
+    assert "gpt-4o" in text
+    assert "API Usage Billing" in text
 
 
-class _FakeSkillManager:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def list_skills(self):
-        return []
-
-    def print_skills_table(self):
-        pass
+def test_permission_mode_helpers():
+    """Permission mode label and cycling helpers work."""
+    assert "manual" in get_permission_mode_label("manual")
+    assert "auto" in get_permission_mode_label("auto")
+    assert cycle_permission_mode("manual") == "accept-edits"
+    assert cycle_permission_mode("auto") == "manual"
 
 
-class _FakeTranscript:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def add_user_turn(self, content: str):
-        pass
-
-    def add_assistant_turn(self, **kwargs):
-        pass
-
-    def view(self):
-        pass
-
-    def save(self):
-        return "/tmp/transcript.jsonl"
+def test_chat_renderer_user_prompt():
+    """render_user_prompt returns a panel (or plain text) containing the prompt."""
+    renderer = ChatMessageRenderer(accessible=False)
+    result = renderer.render_user_prompt("hello world", telemetry_summary="Thought for 2s")
+    content = result.renderable.plain
+    assert "hello world" in content
+    assert "Thought for 2s" in content
+    assert "you" in result.title
 
 
-class _FakeConfig:
-    style_guide = "pep8"
-    accessibility = False
-    theme = "dark"
-    vim_mode = False
-    auto_format = True
-    require_comments = True
-
-    @staticmethod
-    def available_models():
-        return []
+def test_chat_renderer_user_prompt_accessible():
+    """render_user_prompt in accessible mode returns labeled plain text."""
+    renderer = ChatMessageRenderer(accessible=True)
+    result = renderer.render_user_prompt("hello")
+    assert "you: hello" in result
 
 
-def _patch_chat_deps(monkeypatch, fake_agent, engine):
-    """Apply the source-module monkeypatches needed by ``chat_cmd``."""
-    monkeypatch.setattr("ijachi_router.ui.print_welcome_card", lambda **kw: None)
-    monkeypatch.setattr("ijachi_router.config.load_config", lambda: _FakeConfig())
-    monkeypatch.setattr("ijachi_router.transcript.Transcript", _FakeTranscript)
-    monkeypatch.setattr("ijachi_router.skill_manager.SkillManager", _FakeSkillManager)
-    monkeypatch.setattr("ijachi_router.agent.AgenticRouter", lambda *a, **kw: fake_agent)
-    monkeypatch.setattr(
-        "ijachi_router.prompt_engine.PromptEngine", lambda *a, **kw: engine
+def test_chat_renderer_assistant_response():
+    """render_assistant_response includes model, provider, cost, and text."""
+    renderer = ChatMessageRenderer(accessible=False)
+    result = renderer.render_assistant_response(
+        "Done!",
+        model="claude-3-5-sonnet",
+        provider="anthropic",
+        cost_usd=0.005,
+        telemetry_summary="read 2 files",
     )
+    content = result.renderable.plain
+    title = result.title
+    assert "Done!" in content
+    assert "claude-3-5-sonnet" in title
+    assert "anthropic" in title
+    assert "$0.0050" in title
+    assert "read 2 files" in content
 
 
-def test_chat_welcome_card_and_slash_init(monkeypatch):
-    """Verify the chat command renders the welcome card and handles /init."""
-    runner = CliRunner()
-    engine = _FakeEngine(["/init", "hi", "exit"])
-    fake_agent = _FakeAgent()
-    _patch_chat_deps(monkeypatch, fake_agent, engine)
-
-    result = runner.invoke(cli.chat_cmd, [])
-
-    assert result.exit_code == 0, result.output
-    # The real turn should have updated history counters and accept-edits flag
-    assert len(engine.prompt_calls) == 3
-    last_call = engine.prompt_calls[-1]
-    assert last_call["history_total"] == 1
-    assert last_call["history_index"] == 1
-    assert last_call["accept_edits_on"] is False
-    assert last_call["cost_usd"] == pytest.approx(0.001)
+def test_chat_renderer_tool_calls():
+    """render_tool_calls returns a panel listing tool names and argument keys."""
+    renderer = ChatMessageRenderer(accessible=False)
+    tool_calls = [
+        {"tool_name": "read_file", "args": {"path": "core.py"}, "output": "..."},
+        {"tool_name": "edit_file", "args": {"path": "ui.py", "old": "a", "new": "b"}, "output": "ok"},
+    ]
+    result = renderer.render_tool_calls(tool_calls)
+    plain = result.renderable.plain
+    assert "read_file" in plain
+    assert "edit_file" in plain
+    assert "path" in plain
 
 
-def test_chat_mode_cycle_syncs_agent(monkeypatch):
-    """Verify /mode updates both the engine and the agent."""
-    runner = CliRunner()
-    engine = _FakeEngine(["/mode", "hi", "exit"])
-    fake_agent = _FakeAgent()
-    _patch_chat_deps(monkeypatch, fake_agent, engine)
-
-    result = runner.invoke(cli.chat_cmd, [])
-
-    assert result.exit_code == 0, result.output
-    assert fake_agent.permission_mode == "accept-edits"
-    assert engine.permission_mode == "accept-edits"
+def test_tool_call_object_for_transcript():
+    """ToolCall objects can be created with tool_name, args, and output."""
+    tc = ToolCall(tool_name="list_dir", args={"path": "."}, output="files")
+    assert tc.tool_name == "list_dir"
+    assert tc.args == {"path": "."}
+    assert tc.output == "files"

@@ -47,20 +47,22 @@ def test_stats_json_endpoint(running_server):
         assert "models" in data
 
 
-def test_stats_endpoint_auth_gating(monkeypatch, running_server):
+def test_stats_endpoint_unauthenticated(monkeypatch, running_server):
+    """Local REST endpoints are ungated so they work without a Pro license."""
     monkeypatch.setattr("ijachi_router.license.is_pro_active", lambda: False)
     req = urllib.request.Request(f"{running_server}/v1/stats")
-    try:
-        urllib.request.urlopen(req)
-        pytest.fail("Expected 403 Forbidden")
-    except urllib.error.HTTPError as err:
-        assert err.code == 403
-        data = json.loads(err.read().decode("utf-8"))
-        assert "Pro License Required" in data["error"]
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["status"] == "success"
 
 
 
-def test_route_endpoint_auth_gating(monkeypatch, running_server):
+def test_route_endpoint_unauthenticated(monkeypatch, running_server):
+    """POST /v1/route must be callable without a Pro license on the local server."""
+    from unittest.mock import patch
+    from ijachi_router.providers.base import GenerationResult
+
     monkeypatch.setattr("ijachi_router.license.is_pro_active", lambda: False)
 
     body = json.dumps({"prompt": "Hello world"}).encode("utf-8")
@@ -71,11 +73,18 @@ def test_route_endpoint_auth_gating(monkeypatch, running_server):
         method="POST",
     )
 
-    try:
-        urllib.request.urlopen(req)
-        pytest.fail("Expected 403 Forbidden")
-    except urllib.error.HTTPError as err:
-        assert err.code == 403
-        data = json.loads(err.read().decode("utf-8"))
-        assert "Pro License Required" in data["error"]
-        assert "paystack_url" in data
+    fake = GenerationResult(
+        text="Hello back",
+        provider="openai",
+        model="gpt-4o-mini",
+        input_tokens=1,
+        output_tokens=1,
+        cost_usd=0.0001,
+        latency_s=0.1,
+    )
+    with patch("ijachi_router.server.route", return_value=fake):
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            data = json.loads(resp.read().decode("utf-8"))
+            assert data["status"] == "success"
+            assert data["text"] == "Hello back"

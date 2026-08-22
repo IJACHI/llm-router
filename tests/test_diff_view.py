@@ -1,48 +1,60 @@
-"""Unit tests for ijachi_router/diff_view.py."""
+"""Tests for the unified diff renderer."""
 
 from __future__ import annotations
 
-from rich.panel import Panel
-from rich.text import Text
-
-from ijachi_router.diff_view import DiffRenderer, InlineDiff
+from ijachi_router.diff_view import DiffRenderer, InlineDiff, render_edit_approval
 
 
 def test_unified_diff_lines():
-    old = "line1\nline2\nline3\n"
-    new = "line1\nline2 changed\nline3\n"
+    """unified_diff_lines returns the expected diff format."""
     renderer = DiffRenderer()
-    lines = renderer.unified_diff_lines(old, new, "test.txt")
-    assert any(line.startswith("--- a/test.txt") for line in lines)
-    assert any(line.startswith("+++ b/test.txt") for line in lines)
-    assert any(line.startswith("-line2") for line in lines)
-    assert any(line.startswith("+line2 changed") for line in lines)
+    old = "line one\nline two\nline three"
+    new = "line one\nline two changed\nline three"
+    lines = renderer.unified_diff_lines(old, new, "file.txt")
+    joined = "\n".join(lines)
+    assert "--- a/file.txt" in joined
+    assert "+++ b/file.txt" in joined
+    assert "-line two" in joined
+    assert "+line two changed" in joined
 
 
 def test_render_returns_panel():
-    renderer = DiffRenderer()
-    renderable = renderer.render("a\nb\n", "a\nc\n", "file.py")
-    assert isinstance(renderable, Panel)
+    """render returns a Rich Panel with colored diff content."""
+    renderer = DiffRenderer(accessible=False)
+    panel = renderer.render("a\nb\nc", "a\nB\nc", "config.py")
+    text = panel.renderable
+    plain = text.plain
+    assert "config.py" in panel.title
+    assert "-b" in plain
+    assert "+B" in plain
 
 
-def test_render_accessible_returns_string():
+def test_render_accessible_mode():
+    """In accessible mode render returns a plain string."""
     renderer = DiffRenderer(accessible=True)
-    renderable = renderer.render("a\nb\n", "a\nc\n", "file.py")
-    assert isinstance(renderable, str)
-    assert "--- a/file.py" in renderable
+    result = renderer.render("x", "X", "x.txt")
+    assert isinstance(result, str)
+    assert "-x" in result
+    assert "+X" in result
 
 
-def test_summarize():
+def test_summarize_counts():
+    """_summarize reports added/removed line counts."""
     renderer = DiffRenderer()
-    summary = renderer._summarize("a\nb\nc\n", "a\nb\nc\nd\n")
-    assert "Added 1 line(s)" in summary
-    assert "removed 0 line(s)" in summary
+    assert renderer._summarize("a\nb", "a\nb\nc") == "Added 1 line(s), removed 0 line(s)"
+    assert renderer._summarize("a\nb\nc", "a") == "Added 0 line(s), removed 2 line(s)"
 
 
 def test_inline_diff(capsys):
-    diff = InlineDiff()
-    diff.print("old value", "new value", "My change")
+    """InlineDiff prints old/new lines with level styles."""
+    diff = InlineDiff(accessible=False)
+    diff.print("old value", "new value", label="Value")
     captured = capsys.readouterr()
-    assert "My change" in captured.out
-    assert "old value" in captured.out
-    assert "new value" in captured.out
+    assert "Value" in captured.out
+    assert "- old value" in captured.out
+    assert "+ new value" in captured.out
+
+
+def test_render_edit_approval_smoke():
+    """render_edit_approval runs without raising."""
+    render_edit_approval("x", "X", "test.py", accessible=True)

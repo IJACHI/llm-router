@@ -1,50 +1,68 @@
-"""Unit tests for ijachi_router/toasts.py."""
+"""Tests for the toast notification manager."""
 
-import pytest
+from __future__ import annotations
 
 from ijachi_router.toasts import ToastManager, ToastLevel, toast_manager
 
 
-@pytest.fixture
-def fresh_toasts():
-    t = ToastManager()
-    t._reset()
-    return t
-
-
-def test_push_and_count(fresh_toasts):
-    fresh_toasts.push("hello")
-    fresh_toasts.push("world", level="success")
-    assert fresh_toasts.pending_count == 2
-    assert fresh_toasts.toasts[1].level == ToastLevel.SUCCESS
-
-
-def test_pop_oldest(fresh_toasts):
-    fresh_toasts.push("first")
-    fresh_toasts.push("second")
-    oldest = fresh_toasts.pop()
-    assert oldest.message == "first"
-    assert fresh_toasts.pending_count == 1
-
-
-def test_badge_rendering(fresh_toasts):
-    assert fresh_toasts.render_badge() == ""
-    fresh_toasts.push("msg")
-    assert "1 message" in fresh_toasts.render_badge()
-    fresh_toasts.push("msg2")
-    assert "2 messages" in fresh_toasts.render_badge()
-
-
-def test_clear(fresh_toasts):
-    fresh_toasts.push("a")
-    fresh_toasts.push("b")
-    fresh_toasts.clear()
-    assert fresh_toasts.pending_count == 0
-
-
-def test_module_singleton():
-    from ijachi_router import toasts as toasts_mod
-
-    a = toasts_mod.toast_manager
-    b = toasts_mod.ToastManager()
+def test_toast_singleton():
+    """The module-level toast_manager is a singleton."""
+    a = ToastManager()
+    b = ToastManager()
     assert a is b
+    assert toast_manager is a
+
+
+def test_push_and_pop():
+    """Toasts can be pushed, popped FIFO, and cleared."""
+    mgr = ToastManager()
+    mgr._reset()
+
+    t1 = mgr.push("First", level="info")
+    t2 = mgr.push("Second", level="success")
+    assert mgr.pending_count == 2
+    assert t1.level == ToastLevel.INFO
+    assert t2.level == ToastLevel.SUCCESS
+
+    popped = mgr.pop()
+    assert popped is t1
+    assert mgr.pending_count == 1
+
+    mgr.clear()
+    assert mgr.pending_count == 0
+    assert mgr.pop() is None
+
+
+def test_render_badge():
+    """render_badge returns a short Rich markup string only when pending."""
+    mgr = ToastManager()
+    mgr._reset()
+    assert mgr.render_badge() == ""
+
+    mgr.push("hello")
+    badge = mgr.render_badge()
+    assert "1 message" in badge
+    assert "click" in badge
+
+    mgr.push("again")
+    assert "2 messages" in mgr.render_badge()
+
+
+def test_print_pending(capsys):
+    """print_pending renders pending toasts and clears the queue."""
+    mgr = ToastManager()
+    mgr._reset()
+    mgr.push("Done", level="success")
+    mgr.print_pending()
+
+    captured = capsys.readouterr()
+    assert "Done" in captured.out
+    assert mgr.pending_count == 0
+
+
+def test_toast_metadata():
+    """Extra keyword args are stored in toast metadata."""
+    mgr = ToastManager()
+    mgr._reset()
+    toast = mgr.push("event", level="warning", task_id="123")
+    assert toast.metadata == {"task_id": "123"}

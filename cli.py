@@ -143,11 +143,14 @@ def providers(models_yaml):
     import os
     from ijachi_router.config import load_config, _PROVIDER_ENV_KEYS
 
+    from ijachi_router.providers import REGISTRY
+
     config = load_config(models_yaml)
     click.echo("\nProvider status:\n")
 
     listed = {m.provider for m in config.models}
-    for provider in sorted(listed):
+    unknown = listed - set(REGISTRY.keys())
+    for provider in sorted(listed & set(REGISTRY.keys())):
         env_key = _PROVIDER_ENV_KEYS.get(provider)
         if env_key is None:
             status = click.style("✓ available (no key required)", fg="green")
@@ -157,22 +160,36 @@ def providers(models_yaml):
             status = click.style(f"✗ not configured ({env_key} not set)", fg="red")
         click.echo(f"  {provider:<15} {status}")
 
+    if unknown:
+        click.echo(
+            click.style(
+                f"\n⚠ {len(unknown)} unknown provider(s) skipped: {', '.join(sorted(unknown))}",
+                fg="yellow",
+            )
+        )
+
     click.echo()
+    active = config.available_providers & set(REGISTRY.keys())
     click.echo(
         f"Active providers: "
-        f"{', '.join(sorted(config.available_providers)) or 'none (set an API key)'}"
+        f"{', '.join(sorted(active)) or 'none (set an API key)'}"
     )
     click.echo()
 
 
 @main.command(name="update-catalog")
 @click.option("--force", is_flag=True, help="Force refresh from remote registry.")
-def update_catalog_cmd(force):
-    """Fetch the latest model catalog & pricing rates from remote registries."""
-    from ijachi_router.catalog_updater import update_catalog
+@click.option("--restore-defaults", is_flag=True, help="Remove dynamic cache and use bundled models.yaml.")
+def update_catalog_cmd(force, restore_defaults):
+    """Fetch the latest curated model catalog & pricing rates from remote registries."""
+    from ijachi_router.catalog_updater import update_catalog, restore_default_catalog
 
-    click.echo("Fetching dynamic model catalog & pricing updates...")
-    ok, msg = update_catalog(force=force)
+    if restore_defaults:
+        click.echo("Restoring bundled curated model catalog...")
+        ok, msg = restore_default_catalog()
+    else:
+        click.echo("Fetching dynamic model catalog & pricing updates...")
+        ok, msg = update_catalog(force=force)
     if ok:
         click.echo(click.style(f"✓ {msg}", fg="green"))
     else:
@@ -199,7 +216,7 @@ def train():
 @main.command(name="agent")
 @click.argument("task")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
-@click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, claude-3-5-sonnet).")
+@click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, sonnet-3-5).")
 @click.option("--max-steps", "-s", type=int, default=10, help="Maximum tool iteration steps.")
 @click.option("--no-approval", is_flag=True, help="Auto-approve file changes and shell commands.")
 @click.option("--style", default=None, help="Code style guide (pep8, black, google, prettier, airbnb).")
@@ -235,18 +252,24 @@ def agent_cmd(task, priority, model, max_steps, no_approval, style, accessibilit
 
 @main.command(name="chat")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
-@click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, claude-3-5-sonnet).")
+@click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, sonnet-3-5).")
 @click.option("--style", default=None, help="Code style guide (pep8, black, google, prettier, airbnb).")
 @click.option("--accessibility", "-a", is_flag=True, help="Screen-reader accessibility mode (sequential labeled output).")
-@click.option("--theme", default=None, help="UI theme: dark, light, ansi, accessible, auto.")
+@click.option("--theme", default=None, help="UI theme: dark, light, ansi, accessible, auto, coral.")
 @click.option("--vim", is_flag=True, default=False, help="Enable Vim editing mode in the prompt.")
 def chat_cmd(priority, model, style, accessibility, theme, vim):
     """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
     from ijachi_router.agent import AgenticRouter
     from ijachi_router.config import load_config
     from ijachi_router.providers.base import ProviderError
-    from ijachi_router.transcript import Transcript
-    from ijachi_router.ui import set_theme, cycle_permission_mode, print_welcome_card
+    from ijachi_router.transcript import Transcript, ToolCall
+    from ijachi_router.ui import (
+        set_theme,
+        cycle_permission_mode,
+        print_welcome_card,
+        ChatMessageRenderer,
+        _console as ui_console,
+    )
     from ijachi_router.skill_manager import SkillManager
     from ijachi_router.toasts import toast_manager
 
@@ -254,7 +277,7 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
     cfg = load_config()
     style_guide = style or cfg.style_guide
     acc = accessibility or cfg.accessibility
-    active_theme = theme or cfg.theme
+    active_theme = theme or cfg.theme or "coral"
     vim_mode = vim or cfg.vim_mode
 
     # Permission mode (cycled with /mode or Shift+Tab)
@@ -301,6 +324,9 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
 
     def _rewind():
         click.echo(click.style("\n⏪ Rewind: no checkpoint available in this session.", fg="yellow"))
+
+    # Chat message renderer
+    chat_renderer = ChatMessageRenderer(accessible=acc)
 
     # Build PromptEngine (falls back to input() if prompt_toolkit not installed)
     try:
@@ -482,10 +508,10 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
 
                 elif cmd == "init":
                     try:
-                        claude_md_path = agent.planner.generate_claude_md()
-                        click.echo(click.style(f"✓ Generated {claude_md_path}", fg="green"))
+                        agents_md_path = agent.planner.generate_agents_md()
+                        click.echo(click.style(f"✓ Generated {agents_md_path}", fg="green"))
                     except Exception as exc:
-                        click.echo(click.style(f"✗ Could not generate CLAUDE.md: {exc}", fg="red"))
+                        click.echo(click.style(f"✗ Could not generate AGENTS.md: {exc}", fg="red"))
 
                 else:
                     click.echo(click.style(f"Unknown command: /{cmd}. Type /help for commands.", fg="yellow"))
@@ -494,6 +520,10 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
 
             # Record user turn in transcript
             transcript.add_user_turn(stripped)
+
+            # Display user prompt in chat block
+            if not acc:
+                ui_console.print(chat_renderer.render_user_prompt(stripped))
 
             result = agent.run(stripped)
             session_cost += result.total_cost_usd
@@ -511,18 +541,48 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
             # Record assistant turn in transcript (with telemetry summary)
             from ijachi_router.telemetry import telemetry
             telemetry_summary = telemetry.format_status_line()
+            tool_calls = [
+                ToolCall(
+                    tool_name=s.tool_name,
+                    args=s.tool_args,
+                    output=s.tool_output,
+                )
+                for s in result.steps if s.tool_name
+            ]
             transcript.add_assistant_turn(
                 content=result.final_text,
                 model=result.steps[-1].model_used if result.steps else "",
                 provider=result.steps[-1].provider if result.steps else "",
                 cost_usd=result.total_cost_usd,
                 telemetry_summary=telemetry_summary,
+                tool_calls=tool_calls,
             )
 
             if acc:
                 print(f"ijachi: {result.final_text}")
             else:
-                click.echo("\n" + result.final_text + "\n")
+                # Telemetry line between user prompt and assistant response
+                if telemetry_summary:
+                    ui_console.print(f"[dim]{telemetry_summary}[/dim]")
+
+                tool_call_dicts = [
+                    {
+                        "tool_name": tc.tool_name,
+                        "args": tc.args,
+                        "output": tc.output,
+                    }
+                    for tc in tool_calls
+                ]
+                ui_console.print(
+                    chat_renderer.render_assistant_response(
+                        result.final_text,
+                        model=result.steps[-1].model_used if result.steps else "",
+                        provider=result.steps[-1].provider if result.steps else "",
+                        cost_usd=result.total_cost_usd,
+                    )
+                )
+                if tool_call_dicts:
+                    ui_console.print(chat_renderer.render_tool_calls(tool_call_dicts))
 
         except ProviderError as exc:
             if acc:
@@ -622,8 +682,8 @@ def commit_cmd(message):
     """[KILLER FEATURE] Generate Conventional Commit message and commit changes."""
     from ijachi_router.agent import AgenticRouter
 
-    agent = AgenticRouter(require_approval=True)
-    res = agent.git_commit(message=message)
+    agent = AgenticRouter(require_approval=False)
+    res = agent.tools.git_commit(message=message)
     click.echo(click.style(res, fg="green"))
 
 
@@ -1073,7 +1133,7 @@ def code_main():
         "serve", "dashboard", "license", "setup", "launcher", "export-sdk",
         "models", "keys", "agent", "chat", "swarm", "fix", "consensus",
         "index", "doc", "commit", "benchmark", "budget", "extension-server",
-        "update", "skills", "theme",
+        "update", "skills", "theme", "memory", "pr-review", "release",
     }
     args = sys.argv[1:]
     if args and not args[0].startswith("-") and args[0] not in known_commands:

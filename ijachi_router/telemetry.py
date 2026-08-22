@@ -2,7 +2,7 @@
 
 Provides an event-driven telemetry stream that records every action the agent
 takes during a run (file reads, edits, shell commands, searches, LLM calls,
-etc.) and aggregates them into Claude Code-style status lines and roll-ups.
+etc.) and aggregates them into terminal status lines and roll-ups.
 
 Usage
 -----

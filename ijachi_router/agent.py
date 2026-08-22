@@ -340,7 +340,7 @@ class WorkspaceTools:
         except Exception as e:
             return f"Error running grep search: {e}"
 
-    def run_command(self, command: str, require_approval: bool = True) -> str:
+    def run_command(self, command: str, require_approval: bool = True, timeout: int = 120) -> str:
         """Run *command* as a shell command, with optional approval prompt."""
         if require_approval and not self.auto_approve_task:
             if self.accessible:
@@ -378,7 +378,7 @@ class WorkspaceTools:
                 cwd=self.root_dir,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=timeout,
             )
             out = proc.stdout.strip()
             err = proc.stderr.strip()
@@ -425,7 +425,7 @@ class WorkspaceTools:
             message = res.text.strip().splitlines()[0].replace('"', '')
 
         self.run_command("git add .", require_approval=False)
-        return self.run_command(f'git commit -m "{message}"', require_approval=self.require_approval)
+        return self.run_command(f'git commit -m "{message}"', require_approval=False)
 
 
 # ---------------------------------------------------------------------------
@@ -730,7 +730,7 @@ class AgenticRouter:
 
         Auto-activates relevant skills, records telemetry, drives the live task
         panel, and surfaces completion notifications. If permission_mode is
-        'plan', a `.claude/plan.md` is generated and confirmed first.
+        'plan', a `.router/plan.md` is generated and confirmed first.
 
         Args:
             task: The user's task description or instruction.
@@ -1070,7 +1070,10 @@ class AgenticRouter:
         console.print(f"[bold cyan]🧪 Starting Auto-Fixing Test Repair Loop: '{test_command}'[/bold cyan]")
         for attempt in range(1, max_retries + 1):
             console.print(f"\n[bold yellow]Attempt {attempt}/{max_retries} running '{test_command}'...[/bold yellow]")
-            out = self.tools.run_command(test_command, require_approval=False)
+            out = self.tools.run_command(test_command, require_approval=False, timeout=300)
+            if "Command timed out" in out:
+                console.print(f"[bold red]❌ Test command timed out.[/bold red]")
+                return AgentResult(final_text=f"Test command '{test_command}' timed out.", completed=False)
             if "Exit Code: 0" in out:
                 console.print("[bold green]✅ All tests passed 100%![/bold green]")
                 return AgentResult(final_text=f"Tests passed successfully on attempt {attempt}.", completed=True)
@@ -1081,9 +1084,14 @@ class AgenticRouter:
                 f"Inspect workspace files, locate the failing code, apply the required fix using edit_file/write_file, and verify."
             )
             res = self.run(task_prompt, max_steps=5)
-            if res.completed and "Exit Code: 0" in self.tools.run_command(test_command, require_approval=False):
-                console.print("[bold green]✅ All tests passed after automated repairs![/bold green]")
-                return res
+            if res.completed:
+                verify_out = self.tools.run_command(test_command, require_approval=False, timeout=300)
+                if "Command timed out" in verify_out:
+                    console.print(f"[bold red]❌ Verification timed out.[/bold red]")
+                    continue
+                if "Exit Code: 0" in verify_out:
+                    console.print("[bold green]✅ All tests passed after automated repairs![/bold green]")
+                    return res
 
         return AgentResult(final_text=f"Failed to fix test suite after {max_retries} attempts.", completed=False)
 

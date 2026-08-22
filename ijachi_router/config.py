@@ -213,21 +213,25 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
     """Load and return the merged RouterConfig.
 
     Args:
-        models_yaml: Override path to models.yaml. Defaults to dynamic cache
-                     or the bundled catalog in models.yaml.
+        models_yaml: Override path to models.yaml. Defaults to the bundled
+                     curated catalog. The dynamic remote cache is only used
+                     when this argument points to it or when the environment
+                     variable ``IJACHI_USE_CACHED_CATALOG`` is set.
 
     Returns:
         A fully populated RouterConfig.
     """
     if models_yaml:
         yaml_path = Path(models_yaml)
-    else:
+    elif os.environ.get("IJACHI_USE_CACHED_CATALOG"):
         try:
             from ijachi_router.catalog_updater import get_cached_catalog_path
             cached = get_cached_catalog_path()
             yaml_path = cached if cached else _DEFAULT_MODELS_YAML
         except Exception:
             yaml_path = _DEFAULT_MODELS_YAML
+    else:
+        yaml_path = _DEFAULT_MODELS_YAML
 
     models = _load_models(yaml_path)
 

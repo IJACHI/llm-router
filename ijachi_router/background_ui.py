@@ -23,9 +23,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+
+from ijachi_router.ui import _console as themed_console
 
 
 @dataclass
@@ -71,7 +72,6 @@ class BackgroundUIManager:
         self.agents: dict[str, BackgroundAgent] = {}
         self.tasks: dict[str, BackgroundTask] = {}
         self._max_workers = max_workers
-        self.console = Console()
 
     def _get_executor(self) -> ThreadPoolExecutor:
         if BackgroundUIManager._executor is None or BackgroundUIManager._executor._shutdown:
@@ -211,7 +211,7 @@ class BackgroundUIManager:
             return
 
         if not self.agents and not self.tasks:
-            self.console.print("[dim]No background work.[/dim]")
+            themed_console.print("[dim]No background work.[/dim]")
             return
 
         lines: list[Text] = []
@@ -228,11 +228,11 @@ class BackgroundUIManager:
 
         panel = Panel(
             Text("\n").join(lines),
-            title="[bold cyan]🌐 Background Work[/bold cyan]",
-            border_style="bright_blue",
+            title="[bold]🌐 Background Work[/bold]",
+            border_style="banner.border",
             padding=(0, 1),
         )
-        self.console.print(panel)
+        themed_console.print(panel)
 
     def expand(self, work_id: str, accessible: bool = False) -> None:
         """Expand and display the full output/result of a background agent/task."""
@@ -242,7 +242,7 @@ class BackgroundUIManager:
             if accessible:
                 print(msg)
             else:
-                self.console.print(f"[red]{msg}[/red]")
+                themed_console.print(f"[red]{msg}[/red]")
             return
 
         if accessible:
@@ -251,11 +251,11 @@ class BackgroundUIManager:
             return
 
         body = Text(bg.result_text or bg.error or "(still running)")
-        self.console.print(
+        themed_console.print(
             Panel(
                 body,
-                title=f"[bold cyan]{bg.name}[/bold cyan]  [dim]{bg.status} · {self._format_duration(bg.elapsed_sec)}[/dim]",
-                border_style="bright_blue",
+                title=f"[bold]{bg.name}[/bold]  [dim]{bg.status} · {self._format_duration(bg.elapsed_sec)}[/dim]",
+                border_style="banner.border",
                 padding=(0, 1),
             )
         )

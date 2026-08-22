@@ -13,6 +13,7 @@ Flow
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ijachi_router.classifier import complexity_score, predict_category
@@ -157,6 +158,7 @@ class Router:
         _classify_as: str | None = None,
         priority: str | None = None,
         force_model: str | None = None,
+        max_cost: float | None = None,
         **kwargs,
     ) -> GenerationResult:
         """Route *prompt* to the best available model and return the result.
@@ -183,11 +185,20 @@ class Router:
             priority = "cost"
             category = "simple-qa"
         elif force_model:
-            matching = [m for m in self.config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
-            if matching:
-                ranked = matching
+            force_lower = force_model.lower().strip()
+            exact = [m for m in self.config.models if m.model_id.lower() == force_lower]
+            if exact:
+                ranked = exact
             else:
-                ranked = list(self.config.available_models())
+                # Fuzzy fallback: match only if the requested string is a whole
+                # segment (separated by - or /) or a prefix followed by such a
+                # separator. This prevents "gpt-4o" from selecting "gpt-4o-mini".
+                pattern = re.compile(rf"(^|[-/]){re.escape(force_lower)}($|[-/])")
+                fuzzy = [m for m in self.config.models if pattern.search(m.model_id.lower())]
+                if fuzzy:
+                    ranked = fuzzy
+                else:
+                    ranked = list(self.config.available_models())
             category = "code"
         else:
             # 1. Classify — use _classify_as if provided, else fall back to full prompt
@@ -195,11 +206,16 @@ class Router:
             category, confidence = predict_category(classify_text)
             cx = complexity_score(classify_text)
 
-            # 2. Rank candidates with optional priority override
+            # 2. Rank candidates with optional priority / cost-cap override
             effective_config = self.config
-            if priority:
+            if priority or max_cost is not None:
                 from dataclasses import replace as dc_replace
-                effective_config = dc_replace(self.config, priority=priority)
+                overrides: dict = {}
+                if priority:
+                    overrides["priority"] = priority
+                if max_cost is not None:
+                    overrides["max_cost_per_call"] = max_cost
+                effective_config = dc_replace(self.config, **overrides)
 
             ranked = _rank_models(effective_config, category, cx)
 
@@ -275,11 +291,20 @@ class Router:
             priority = "cost"
             category = "simple-qa"
         elif force_model:
-            matching = [m for m in self.config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
-            if matching:
-                ranked = matching
+            force_lower = force_model.lower().strip()
+            exact = [m for m in self.config.models if m.model_id.lower() == force_lower]
+            if exact:
+                ranked = exact
             else:
-                ranked = list(self.config.available_models())
+                # Fuzzy fallback: match only if the requested string is a whole
+                # segment (separated by - or /) or a prefix followed by such a
+                # separator. This prevents "gpt-4o" from selecting "gpt-4o-mini".
+                pattern = re.compile(rf"(^|[-/]){re.escape(force_lower)}($|[-/])")
+                fuzzy = [m for m in self.config.models if pattern.search(m.model_id.lower())]
+                if fuzzy:
+                    ranked = fuzzy
+                else:
+                    ranked = list(self.config.available_models())
             category = "code"
         else:
             classify_text = _classify_as if _classify_as else prompt
@@ -348,6 +373,7 @@ def route(
     _classify_as: str | None = None,
     priority: str | None = None,
     force_model: str | None = None,
+    max_cost: float | None = None,
     **kwargs,
 ) -> GenerationResult:
     """Convenience function: ``Router().route(prompt, ...)``."""
@@ -357,5 +383,6 @@ def route(
         _classify_as=_classify_as,
         priority=priority,
         force_model=force_model,
+        max_cost=max_cost,
         **kwargs,
     )
