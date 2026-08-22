@@ -781,40 +781,42 @@ class AgenticRouter:
                 console.print(f"[dim]Thought: {thought}[/dim]")
                 console.print(f"[bold yellow]Tool Call: {tool_name}({args})[/bold yellow]")
 
-            tool_output = ""
-            if tool_name == "read_file":
-                tool_output = self.tools.read_file(
-                    path=args.get("path", ""),
-                    start_line=args.get("start_line"),
-                    end_line=args.get("end_line"),
-                )
-            elif tool_name == "write_file":
-                tool_output = self.tools.write_file(
-                    path=args.get("path", ""),
-                    content=args.get("content", ""),
-                    require_approval=self.require_approval,
-                )
-            elif tool_name == "edit_file":
-                tool_output = self.tools.edit_file(
-                    path=args.get("path", ""),
-                    target_content=args.get("target_content", ""),
-                    replacement_content=args.get("replacement_content", ""),
-                    require_approval=self.require_approval,
-                )
-            elif tool_name == "list_dir":
-                tool_output = self.tools.list_dir(path=args.get("path", "."))
-            elif tool_name == "grep_search":
-                tool_output = self.tools.grep_search(
-                    query=args.get("query", ""),
-                    search_path=args.get("search_path", "."),
-                )
-            elif tool_name == "run_command":
-                tool_output = self.tools.run_command(
-                    command=args.get("command", ""),
-                    require_approval=self.require_approval,
-                )
-            else:
-                tool_output = f"Unknown tool: {tool_name}"
+            from ijachi_router.ui import status_spinner
+            with status_spinner(f"Executing {tool_name}...") as tool_spinner:
+                tool_output = ""
+                if tool_name == "read_file":
+                    tool_output = self.tools.read_file(
+                        path=args.get("path", ""),
+                        start_line=args.get("start_line"),
+                        end_line=args.get("end_line"),
+                    )
+                elif tool_name == "write_file":
+                    tool_output = self.tools.write_file(
+                        path=args.get("path", ""),
+                        content=args.get("content", ""),
+                        require_approval=self.require_approval,
+                    )
+                elif tool_name == "edit_file":
+                    tool_output = self.tools.edit_file(
+                        path=args.get("path", ""),
+                        target_content=args.get("target_content", ""),
+                        replacement_content=args.get("replacement_content", ""),
+                        require_approval=self.require_approval,
+                    )
+                elif tool_name == "list_dir":
+                    tool_output = self.tools.list_dir(path=args.get("path", "."))
+                elif tool_name == "grep_search":
+                    tool_output = self.tools.grep_search(
+                        query=args.get("query", ""),
+                        search_path=args.get("search_path", "."),
+                    )
+                elif tool_name == "run_command":
+                    tool_output = self.tools.run_command(
+                        command=args.get("command", ""),
+                        require_approval=self.require_approval,
+                    )
+                else:
+                    tool_output = f"Unknown tool: {tool_name}"
 
             if self.accessible:
                 if "error" in tool_output.lower() or "Exit Code: 1" in tool_output:

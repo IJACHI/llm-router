@@ -201,27 +201,34 @@ class Router:
                 "Or run Ollama locally for a free offline option."
             )
 
-        # 3. Optimize prompt for the top candidate
-        top_model = ranked[0]
-        category = category if not force_model else "code"
-        optimized = optimize_prompt(prompt, top_model.provider, category)
+        from ijachi_router.ui import status_spinner
 
-        # 4. Build provider instances
-        providers = []
-        for m in ranked:
-            try:
-                providers.append(_build_provider(m))
-            except (KeyError, Exception):
-                continue
+        with status_spinner(f"Analyzing prompt & ranking optimal models...") as spinner:
+            # 3. Optimize prompt for the top candidate
+            top_model = ranked[0]
+            category = category if not force_model else "code"
+            optimized = optimize_prompt(prompt, top_model.provider, category)
 
-        # 5. Route with fallback
-        result = route_with_fallback(providers, optimized, **kwargs)
+            # 4. Build provider instances
+            providers = []
+            for m in ranked:
+                try:
+                    providers.append(_build_provider(m))
+                except (KeyError, Exception):
+                    continue
 
-        # 6. Humanize: strip AI watermarks & artifacts using the requested mode
-        clean_text = humanize(result.text, mode=humanize_mode)
+            # Update status with target model
+            spinner.update(f"Querying {top_model.provider}/{top_model.model_id}...")
 
-        # 7. Security scan & auto-remediate any vulnerabilities in generated code
-        clean_text, _ = scan_and_fix(clean_text)
+            # 5. Route with fallback
+            result = route_with_fallback(providers, optimized, **kwargs)
+
+            spinner.update("Auditing security & formatting output...")
+            # 6. Humanize: strip AI watermarks & artifacts using the requested mode
+            clean_text = humanize(result.text, mode=humanize_mode)
+
+            # 7. Security scan & auto-remediate any vulnerabilities in generated code
+            clean_text, _ = scan_and_fix(clean_text)
 
         # 8. Compute Telemetry & Cost Savings (Baseline: GPT-4o frontier standard)
         baseline_model_id = "gpt-4o"

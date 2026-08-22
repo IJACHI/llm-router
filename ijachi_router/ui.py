@@ -393,3 +393,50 @@ def render_agent_breakdown(result) -> None:
 
     _console.print()
     _console.print(result.get_breakdown_table())
+
+
+# ---------------------------------------------------------------------------
+# Real-Time Animated Status Spinner & Progress Helpers
+# ---------------------------------------------------------------------------
+
+from contextlib import contextmanager
+from typing import Generator
+
+
+class _NoOpStatus:
+    """Fallback status controller for accessible or non-interactive environments."""
+    def update(self, text: str) -> None:
+        if is_accessible_mode():
+            print(f"status: {text}")
+
+
+@contextmanager
+def status_spinner(initial_message: str = "Thinking...") -> Generator[Any, None, None]:
+    """Context manager that displays an animated Rich spinner during long operations.
+
+    In accessibility mode, outputs plain text lines instead of ANSI animation.
+
+    Args:
+        initial_message: The initial status text to display next to the spinner.
+
+    Yields:
+        A status object that can be updated with `status.update("New message...")`.
+    """
+    if is_accessible_mode():
+        print(f"status: {initial_message}")
+        yield _NoOpStatus()
+        return
+
+    try:
+        with _console.status(f"[bold cyan]{initial_message}[/bold cyan]", spinner="dots") as status:
+            yield status
+    except Exception:
+        yield _NoOpStatus()
+
+
+def live_status_message(message: str, style: str = "dim cyan") -> None:
+    """Print an immediate live status notice."""
+    if is_accessible_mode():
+        print(f"status: {message}")
+    else:
+        _console.print(f"[{style}]⚡ {message}[/{style}]")
