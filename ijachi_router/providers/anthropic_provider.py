@@ -19,10 +19,15 @@ class AnthropicProvider(Provider):
             raise ProviderError("ANTHROPIC_API_KEY not set")
 
         client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model=self.model_id,
-            max_tokens=kwargs.get("max_tokens", 1024),
-            messages=[{"role": "user", "content": prompt}],
-        )
+        system_prompt = kwargs.get("system_prompt")
+        params = {
+            "model": self.model_id,
+            "max_tokens": kwargs.get("max_tokens", 8192),
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system_prompt:
+            params["system"] = system_prompt
+
+        resp = client.messages.create(**params)
         text = "".join(block.text for block in resp.content if hasattr(block, "text"))
         return text, resp.usage.input_tokens, resp.usage.output_tokens

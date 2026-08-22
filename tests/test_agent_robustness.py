@@ -206,3 +206,93 @@ def test_agent_multiturn_goal_continuity(monkeypatch, tmp_path):
     assert len(captured_prompt) > 0
     assert "MedFrontier" in captured_prompt[0]
     assert "Layer 2: Active Session & Intent" in captured_prompt[0]
+
+
+def test_extract_files_from_markdown():
+    """Test extracting file blocks from markdown tutorials."""
+    from ijachi_router.agent import _extract_files_from_markdown
+
+    markdown_doc = """
+Below is the complete file structure for MedFrontier.
+
+### File: `config.py`
+```python
+import os
+
+class Config:
+    SECRET_KEY = "medfrontier-secret"
+```
+
+### 2. `models.py`
+```python
+class Article:
+    def __init__(self, title):
+        self.title = title
+```
+
+## `templates/index.html`
+```html
+<!DOCTYPE html>
+<html>
+<body><h1>MedFrontier</h1></body>
+</html>
+```
+"""
+    extracted = _extract_files_from_markdown(markdown_doc)
+    assert len(extracted) == 3
+    paths = [p[0] for p in extracted]
+    assert "config.py" in paths
+    assert "models.py" in paths
+    assert "templates/index.html" in paths
+    assert "SECRET_KEY" in extracted[0][1]
+
+
+def test_agent_auto_writes_markdown_code_blocks(monkeypatch, tmp_path):
+    """Test that when a model outputs markdown code blocks, the agent extracts and writes them to disk."""
+    agent = AgenticRouter(root_dir=tmp_path, require_approval=False)
+
+    markdown_response = """
+Here are the files for your application:
+
+### File: `config.py`
+```python
+PORT = 8080
+```
+
+### File: `app.py`
+```python
+print("Hello World")
+```
+"""
+    mock_res = GenerationResult(
+        text=markdown_response,
+        model="gemini-2.5-flash",
+        provider="gemini",
+        cost_usd=0.0001,
+        latency_s=0.2,
+        input_tokens=100,
+        output_tokens=50,
+    )
+    monkeypatch.setattr("ijachi_router.agent.route", lambda *args, **kwargs: mock_res)
+
+    res = agent.run("Create sample application")
+    assert res.completed is True
+
+    # Check that the files were actually created on disk
+    config_file = tmp_path / "config.py"
+    app_file = tmp_path / "app.py"
+    assert config_file.exists()
+    assert "PORT = 8080" in config_file.read_text()
+    assert app_file.exists()
+    assert 'print("Hello World")' in app_file.read_text()
+
+
+def test_optimizer_preserves_agentic_prompt():
+    """Test that optimize_prompt does not append conversational suffixes to agentic prompts."""
+    from ijachi_router.optimizer import optimize_prompt, is_agentic_prompt
+
+    agent_prompt = 'You are ijachi-code. {"tool": "write_file", "args": {"path": "app.py"}}'
+    assert is_agentic_prompt(agent_prompt) is True
+    optimized = optimize_prompt(agent_prompt, "gemini", "code")
+    assert "Please respond clearly and accurately." not in optimized
+    assert optimized == agent_prompt

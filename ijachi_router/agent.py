@@ -557,6 +557,40 @@ def _try_parse_json(candidate: str) -> dict | None:
     return None
 
 
+def _extract_files_from_markdown(text: str) -> list[tuple[str, str]]:
+    """Extract (filepath, content) tuples from markdown responses containing code file blocks."""
+    results: list[tuple[str, str]] = []
+    if not text:
+        return results
+
+    # Pattern 1: Heading with filename followed by code block
+    # Matches: ### File: `config.py` or ### 1. `config.py` or ## `config.py` or ### config.py
+    heading_pattern = re.compile(
+        r'(?:###?|####?|\*\*|##)\s*(?:File:\s*)?(?:[0-9]+\.\s*)?`?([a-zA-Z0-9_\-/\\]+\.[a-zA-Z0-9_]+)`?\s*(?:\*\*)?\s*\n+```[a-zA-Z0-9_-]*\n([\s\S]*?)```',
+        re.MULTILINE
+    )
+    for match in heading_pattern.finditer(text):
+        fname = match.group(1).strip().strip("`")
+        content = match.group(2)
+        if "." in fname and not fname.startswith("http") and not fname.startswith("v") and not fname.endswith(".com"):
+            results.append((fname, content))
+
+    # Pattern 2: Code block with filename comment on the first line
+    # Matches: ```python\n# config.py\n...```
+    if not results:
+        block_pattern = re.compile(
+            r'```(?:[a-zA-Z0-9_-]*)\n(?:#|//|<!--)\s*([a-zA-Z0-9_\-/\\]+\.[a-zA-Z0-9_]+)(?:\s*-->)?\n([\s\S]*?)```',
+            re.MULTILINE
+        )
+        for match in block_pattern.finditer(text):
+            fname = match.group(1).strip()
+            content = match.group(2)
+            if "." in fname and not fname.startswith("http"):
+                results.append((fname, content))
+
+    return results
+
+
 def _extract_tool_call(response_text: str) -> dict | None:
     """Extract tool call or final_answer dictionary from LLM response."""
     text = response_text.strip()
@@ -625,45 +659,51 @@ _STYLE_INSTRUCTION = """
 - Extract magic numbers and string literals into named constants.
 """
 
-_SYSTEM_PROMPT = """You are ijachi-code, an autonomous agentic pair programmer running directly in the user's workspace.
+_SYSTEM_PROMPT = """You are ijachi-code, an autonomous agentic pair programmer executing directly in the user's workspace.
 
-## CRITICAL EXECUTION DIRECTIVES:
-1. AUTONOMOUS FILE CREATION & SCAFFOLDING:
-   When the user asks you to build, create, scaffold, write, edit, or test code:
-   - DO NOT output code blocks in conversational markdown.
-   - DO NOT tell the user to "create these files manually" or "clone a repository".
-   - You MUST immediately issue `write_file`, `edit_file`, or `run_command` tool calls to build the files on disk directly.
+## STRICT OPERATIONAL DIRECTIVES:
+1. NON-CONVERSATIONAL AGENT MODE:
+   - You are NOT a conversational chatbot. You are an autonomous filesystem execution engine.
+   - NEVER output markdown code manuals, setup guides, or tell the user to "create these files as shown".
+   - You MUST output JSON tool calls to create, edit, and run code directly on the user's machine.
+   - Your VERY FIRST response must be a JSON tool call (`write_file` or `list_dir`).
+
+2. AUTONOMOUS FILE CREATION:
+   - When asked to build an application or website (e.g. MedFrontier, Flask apps, React components), begin IMMEDIATELY by calling `write_file` for each file.
    - Create one file at a time using `write_file` until the full project is completely built and functional.
 
-2. WORKSPACE AWARENESS ON STATUS QUERIES:
-   When the user asks status questions (e.g. "are you done?", "what is the status?", "how do I see/run the app?"):
+3. WORKSPACE AWARENESS ON STATUS QUERIES:
+   - When the user asks status questions (e.g. "are you done?", "what is the status?", "how do I see/run the app?"):
    - Inspect the workspace or reference previous context before answering.
    - If files exist (e.g. app.py), provide concrete instructions on how to run them (e.g. `python app.py`).
 
-3. TOOL CALL FORMAT:
-To execute a tool, your entire response MUST be a single valid JSON block in this exact schema:
+4. TOOL CALL SCHEMA:
+Respond ONLY with a single JSON block:
 ```json
 {
-  "thought": "Clear explanation of what you are doing and which file you are writing",
-  "tool": "tool_name",
-  "args": { ... }
+  "thought": "Reasoning about what file to create or command to run",
+  "tool": "write_file",
+  "args": {
+    "path": "config.py",
+    "content": "..."
+  }
 }
 ```
 
 Available tools:
-- read_file(path: str, start_line: int | None, end_line: int | None)
 - write_file(path: str, content: str)
+- read_file(path: str, start_line: int | None, end_line: int | None)
 - edit_file(path: str, target_content: str, replacement_content: str)
 - list_dir(path: str)
 - grep_search(query: str, search_path: str)
 - run_command(command: str)
 
-4. COMPLETION:
-Only when all required files are written and the task is 100% complete, respond with:
+5. COMPLETION:
+Only after ALL files have been written to disk using `write_file` and verified, emit:
 ```json
 {
-  "thought": "Summary of everything created and verified",
-  "final_answer": "Complete summary and instructions for the user"
+  "thought": "All files written to disk and verified.",
+  "final_answer": "Complete summary of created files and exact command to run the app (e.g. python app.py)."
 }
 ```
 """ + _STYLE_INSTRUCTION
@@ -780,13 +820,14 @@ class AgenticRouter:
             else:
                 console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
 
-            # Route: classify only the *task* text for model selection,
-            # but send the full conversation context as the actual prompt.
+            # Route with isolated system prompt and high token limit for file generation
             res = route(
                 prompt=current_prompt,
                 priority=self.priority,
                 force_model=self.force_model,
                 _classify_as=task,
+                system_prompt=full_system_prompt,
+                max_tokens=8192,
             )
             total_cost += res.cost_usd
 
@@ -795,12 +836,66 @@ class AgenticRouter:
             # Parse JSON tool call using robust multi-layer extractor
             parsed = _extract_tool_call(response_text)
 
+            # If no JSON tool call was found, check if the model outputted markdown code files
+            if parsed is None:
+                extracted_files = _extract_files_from_markdown(response_text)
+                if extracted_files:
+                    if not self.accessible:
+                        console.print(f"[bold green]⚡ Auto-extracted {len(extracted_files)} files from model output. Writing to disk...[/bold green]")
+                    written_files = []
+                    for f_path, f_content in extracted_files:
+                        write_res = self.tools.write_file(f_path, f_content, require_approval=self.require_approval)
+                        written_files.append(f_path)
+                        steps.append(
+                            AgentStep(
+                                step_number=step_idx,
+                                thought=f"Auto-extracted '{f_path}' from markdown output",
+                                tool_name="write_file",
+                                tool_args={"path": f_path, "content": f_content[:100] + "..."},
+                                tool_output=write_res,
+                                model_used=res.model,
+                                provider=res.provider,
+                                cost_usd=res.cost_usd / len(extracted_files),
+                            )
+                        )
+                        if not self.accessible:
+                            console.print(f"[green]✓ Created {f_path}[/green]")
+                    
+                    final_text = f"Successfully created {len(written_files)} files: {', '.join(written_files)}.\n\n" + response_text
+                    _notify("ijachi-code", f"Created {len(written_files)} files ✓")
+                    if hasattr(self, "ctx"):
+                        self.ctx.record_task(
+                            task=task,
+                            result_text=final_text,
+                            model=res.model if res else "auto",
+                            cost_usd=total_cost,
+                        )
+                    return AgentResult(
+                        final_text=final_text,
+                        steps=steps,
+                        total_cost_usd=total_cost,
+                        completed=True,
+                    )
+
             # If the response looks like an attempted tool call but failed extraction, prompt retry
             if parsed is None and any(k in response_text for k in ('"tool"', '"args"', 'write_file', 'edit_file', 'read_file', 'list_dir')):
                 current_prompt += (
                     f"\nAssistant: {response_text}\n"
                     f"System Error: Invalid JSON syntax in tool call. Respond ONLY with a single valid JSON block matching:\n"
                     f"```json\n{{\"thought\": \"reasoning\", \"tool\": \"tool_name\", \"args\": {{...}}}}\n```"
+                )
+                continue
+
+            # If it's an action task (build, create, write, scaffold) and step 1 returned pure text with no files, enforce tool usage
+            is_action_task = any(v in task.lower() for v in ("build", "create", "scaffold", "implement", "write", "make", "fix", "add"))
+            if not parsed and is_action_task and step_idx < max_steps:
+                current_prompt += (
+                    f"\nAssistant: {response_text}\n"
+                    f"System Directive: You are an autonomous agent with workspace write privileges. "
+                    f"You MUST NOT output conversational manuals or text descriptions. "
+                    f"You MUST emit JSON tool calls (e.g. write_file) to write the files directly to the workspace.\n"
+                    f"Emit a JSON tool call block to create the first file:\n"
+                    f"```json\n{{\"thought\": \"Creating initial file\", \"tool\": \"write_file\", \"args\": {{\"path\": \"...\", \"content\": \"...\"}}}}\n```"
                 )
                 continue
 

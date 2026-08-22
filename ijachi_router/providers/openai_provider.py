@@ -20,10 +20,16 @@ class OpenAIProvider(Provider):
 
         try:
             client = openai.OpenAI(api_key=api_key)
+            system_prompt = kwargs.get("system_prompt")
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
             resp = client.chat.completions.create(
                 model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=kwargs.get("max_tokens", 1024),
+                messages=messages,
+                max_tokens=kwargs.get("max_tokens", 8192),
             )
             text = resp.choices[0].message.content or ""
             return text, resp.usage.prompt_tokens, resp.usage.completion_tokens

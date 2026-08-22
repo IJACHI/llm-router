@@ -22,10 +22,16 @@ class GeminiProvider(Provider):
                 api_key=api_key,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             )
+            system_prompt = kwargs.get("system_prompt")
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
             resp = client.chat.completions.create(
                 model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=kwargs.get("max_tokens", 1024),
+                messages=messages,
+                max_tokens=kwargs.get("max_tokens", 8192),
             )
             text = resp.choices[0].message.content or ""
             in_tokens = resp.usage.prompt_tokens if resp.usage else 0
