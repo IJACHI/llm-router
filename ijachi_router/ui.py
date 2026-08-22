@@ -205,24 +205,6 @@ def list_themes() -> list[str]:
 # Banner
 # ---------------------------------------------------------------------------
 
-_ROBOT_MASCOT = r"""
-     ██████████
-   ██  ▓▓▓▓  ██
-   ██ ▓ ■■ ▓ ██
-   ██ ▓  ▼  ▓ ██
-     ██████████
-   ██  █  █  ██
-    ██ █  █ ██
-"""
-
-_BANNER_ART = r"""
- ██   ███████   █████    ██████  ██   ██  ██
- ██        ██  ██   ██  ██       ██   ██  ██
- ██        ██  ███████  ██       ███████  ██
- ██   ██   ██  ██   ██  ██       ██   ██  ██
- ██    █████   ██   ██   ██████  ██   ██  ██
-"""
-
 # Application metadata shown in the welcome card
 _APP_VERSION = "v1.0.0"
 _APP_TAGLINE = "⚡ One Prompt. Best Model. Zero Watermarks. OWASP Secured."
@@ -284,7 +266,7 @@ def get_welcome_card(
     billing: str = "API Usage Billing",
     workspace: str | None = None,
 ) -> Panel:
-    """Render the welcome card with mascot, metadata, tips, and news.
+    """Render the welcome card with metadata, tips, and news.
 
     Args:
         model: Active model label (e.g. 'kimi-k2.7-code:cloud').
@@ -292,47 +274,43 @@ def get_welcome_card(
         workspace: Current working directory. Defaults to ``Path.cwd()``.
 
     Returns:
-        A double-bordered Rich Panel with a two-column layout.
+        A double-bordered Rich Panel with a balanced layout.
     """
     if workspace is None:
         workspace = str(Path.cwd())
     home = str(Path.home())
     workspace_display = workspace.replace(home, "~")
 
-    # Left column: greeting, mascot, session context.
-    mascot = Text(_ROBOT_MASCOT, style="banner", justify="center")
-    greeting = Text.from_markup("[bold]Welcome back![/bold]", justify="center")
+    # Left column: greeting & session context.
+    greeting = Text.from_markup("[bold cyan]Welcome back![/bold cyan]\n")
     context = Text.from_markup(
-        f"[dim]{model}[/dim] · [dim]{billing}[/dim]\n[dim]{workspace_display}[/dim]",
-        justify="center",
+        f"[dim]Model:[/dim] [bold]{model}[/bold]\n"
+        f"[dim]Billing:[/dim] {billing}\n"
+        f"[dim]Workspace:[/dim] {workspace_display}"
     )
     left = Group(
         greeting,
-        Text("\n"),
-        mascot,
-        Text("\n"),
         context,
     )
 
     # Right column: tips and release notes.
-    tips_title = Text.from_markup("[bold]Tips for getting started[/bold]")
+    tips_title = Text.from_markup("[bold yellow]Tips for getting started[/bold yellow]")
     tips_body = Text.from_markup("\n".join(f"  • {tip}" for tip in _TIPS))
 
-    news_title = Text.from_markup("\n[bold]What's new[/bold]")
+    news_title = Text.from_markup("\n[bold green]What's new[/bold green]")
     news_lines = [Text.from_markup(f"  • {note}") for _, note in _RELEASE_NOTES[:3]]
     news_body = Text("\n").join(news_lines)
 
     right = Group(tips_title, Text("\n"), tips_body, news_title, Text("\n"), news_body)
 
-    # Two-column layout; left column is narrower so the mascot + context sit together.
+    # Two-column layout; responsive expanding panels.
     layout = Columns(
         [
-            Panel(left, box=box.MINIMAL, padding=(0, 0)),
-            Panel(right, box=box.MINIMAL, padding=(0, 0)),
+            Panel(left, box=box.MINIMAL, padding=(0, 1)),
+            Panel(right, box=box.MINIMAL, padding=(0, 1)),
         ],
         equal=False,
         expand=True,
-        width=32,
     )
 
     return double_border_panel(

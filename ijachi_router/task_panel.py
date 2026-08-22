@@ -151,7 +151,7 @@ class TaskPanel:
         self._live = Live(
             self.render(),
             refresh_per_second=4,
-            transient=False,
+            transient=True,
             console=themed_console,
         )
         self._live.start()
