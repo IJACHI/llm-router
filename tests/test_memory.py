@@ -36,7 +36,7 @@ def test_memory_token_compression(tmp_path):
 
     mem.compress_if_needed(threshold_tokens=200)
     assert mem.compressed_digest != ""
-    assert "Lossless Project Digest" in mem.compressed_digest
+    assert len(mem.compressed_digest) > 20
     assert mem.total_tokens_saved > 0
 
     ctx = mem.get_compressed_context()

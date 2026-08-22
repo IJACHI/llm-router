@@ -583,6 +583,7 @@ class AgenticRouter:
         require_comments: bool = True,
         accessible: bool = False,
         force_model: str | None = None,
+        context_manager: Any | None = None,
     ):
         self.formatter = CodeFormatter(
             style_guide=style_guide,
@@ -600,12 +601,21 @@ class AgenticRouter:
         self.accessible = accessible
         self.checklist = TaskChecklist(accessible=accessible)
 
+        # Multi-layer Context Memory Manager (L1 Global, L2 Session, L3 Task)
+        if context_manager is not None:
+            self.ctx = context_manager
+        else:
+            from ijachi_router.context_manager import ContextManager
+            self.ctx = ContextManager(root_dir=self.tools.root_dir)
+
         # Load and prepare skill manager
         from ijachi_router.skill_manager import SkillManager
         self._skill_manager = SkillManager(workspace_root=self.tools.root_dir)
 
     def set_model(self, model_id: str | None) -> None:
         """Switch or pin a specific model dynamically."""
+        if hasattr(self, "ctx"):
+            self.ctx.record_model_switch(self.force_model or "auto", model_id or "auto")
         self.force_model = model_id
 
     def set_priority(self, priority: str) -> None:
@@ -642,7 +652,12 @@ class AgenticRouter:
         style_block = self.formatter.get_style_prompt()
         full_system_prompt = _SYSTEM_PROMPT + style_block + skill_prompt
 
-        current_prompt = f"{full_system_prompt}\n\nTask: {task}\n"
+        # Inject multi-layer context block (L1 Global + L2 Session + L3 Task History)
+        context_block = self.ctx.build_context_block(task)
+        if context_block:
+            current_prompt = f"{full_system_prompt}\n\n{context_block}\n\nTask: {task}\n"
+        else:
+            current_prompt = f"{full_system_prompt}\n\nTask: {task}\n"
 
         for step_idx in range(1, max_steps + 1):
             if self.accessible:
@@ -678,6 +693,14 @@ class AgenticRouter:
                 final_text = parsed.get("final_answer", response_text) if parsed else response_text
                 # Notify on completion
                 _notify("ijachi-code", "Task complete ✓")
+                # Record in Multi-Layer Context Memory
+                if hasattr(self, "ctx"):
+                    self.ctx.record_task(
+                        task=task,
+                        result_text=final_text,
+                        model=res.model if res else "auto",
+                        cost_usd=total_cost,
+                    )
                 return AgentResult(
                     final_text=final_text,
                     steps=steps,
@@ -751,8 +774,16 @@ class AgenticRouter:
 
             current_prompt += f"\nAssistant: {response_text}\nTool Output ({tool_name}):\n{tool_output}\nContinue task."
 
+        final_exit_text = "Agentic loop reached maximum steps."
+        if hasattr(self, "ctx"):
+            self.ctx.record_task(
+                task=task,
+                result_text=final_exit_text,
+                model=res.model if res else "auto",
+                cost_usd=total_cost,
+            )
         return AgentResult(
-            final_text="Agentic loop reached maximum steps.",
+            final_text=final_exit_text,
             steps=steps,
             total_cost_usd=total_cost,
             completed=False,

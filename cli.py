@@ -423,6 +423,38 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
                     from ijachi_router.prompt_engine import _HELP_TEXT
                     print(_HELP_TEXT)
 
+                elif cmd in ("memory", "mem"):
+                    subparts = arg.split(None, 1)
+                    subcmd = subparts[0].lower() if subparts else ""
+                    subarg = subparts[1] if len(subparts) > 1 else ""
+
+                    if not subcmd or subcmd == "summary":
+                        click.echo(click.style(agent.ctx.summary(), fg="cyan"))
+                    elif subcmd in ("view", "context", "block"):
+                        ctx_block = agent.ctx.build_context_block()
+                        if ctx_block:
+                            click.echo(click.style(f"\n{ctx_block}\n", fg="bright_black"))
+                        else:
+                            click.echo(click.style("Context memory is currently empty for this project.", fg="yellow"))
+                    elif subcmd == "clear":
+                        agent.ctx.clear()
+                        click.echo(click.style("✓ Context memory reset (L1 disk, L2 session, L3 tasks cleared).", fg="green"))
+                    elif subcmd == "goal":
+                        if subarg:
+                            agent.ctx.set_session_goal(subarg)
+                            click.echo(click.style(f"✓ Session goal updated to: '{subarg}'", fg="green"))
+                        else:
+                            curr_goal = agent.ctx.session_goal or "(none set)"
+                            click.echo(click.style(f"Current session goal: {curr_goal}\nUsage: /memory goal <goal description>", fg="yellow"))
+                    elif subcmd in ("decision", "decide"):
+                        if subarg:
+                            agent.ctx.l1_global.add_architectural_decision(subarg)
+                            click.echo(click.style(f"✓ Architectural decision recorded: '{subarg}'", fg="green"))
+                        else:
+                            click.echo("Usage: /memory decide <architectural decision>")
+                    else:
+                        click.echo("Usage: /memory [summary | view | goal <text> | decide <text> | clear]")
+
                 elif cmd == "mode":
                     permission_mode = cycle_permission_mode(permission_mode)
                     if engine:
