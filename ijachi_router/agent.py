@@ -166,6 +166,7 @@ class WorkspaceTools:
         self.root_dir = Path(root_dir or Path.cwd()).resolve()
         self.formatter = formatter or CodeFormatter()
         self.accessible = accessible
+        self.auto_approve_task: bool = False
 
     def _resolve_path(self, relative_or_abs: str) -> Path:
         p = Path(relative_or_abs)
@@ -222,16 +223,25 @@ class WorkspaceTools:
         if not report.is_safe:
             console.print(f"[bold red]{format_security_summary(report)}[/bold red]")
 
-        if require_approval:
+        if require_approval and not self.auto_approve_task:
             if self.accessible:
-                print(f"permission_required: Write to {target}? [y/n]: ")
+                print(f"permission_required: Write to {target}? [y/n/a=all]: ")
                 answer = input().strip().lower()
-                if answer != "y":
+                if answer in ("a", "all"):
+                    self.auto_approve_task = True
+                elif answer not in ("y", ""):
                     return "Cancelled by user."
             else:
                 console.print(f"\n[bold yellow]⚠️ Workspace File Creation/Overwrite Request[/bold yellow]")
                 console.print(f"Target path: [cyan]{target}[/cyan]")
-                if not Confirm.ask("Do you want to proceed with writing to this file?", default=True):
+                console.print("[dim]Options: [bold]y[/bold]=proceed  [bold]a[/bold]=approve all in task  [bold]n[/bold]=cancel[/dim]")
+                try:
+                    choice = input("Choice [y/n/a]: ").strip().lower()
+                except (KeyboardInterrupt, EOFError):
+                    choice = "n"
+                if choice in ("a", "all"):
+                    self.auto_approve_task = True
+                elif choice not in ("y", ""):
                     return "Cancelled by user."
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -289,29 +299,33 @@ class WorkspaceTools:
             if not report.is_safe:
                 console.print(f"[bold red]{format_security_summary(report)}[/bold red]")
 
-            if require_approval:
+            if require_approval and not self.auto_approve_task:
                 if self.accessible:
-                    print(f"permission_required: Edit {target}? [y/n/e=explain]: ")
+                    print(f"permission_required: Edit {target}? [y/n/a=all/e=explain]: ")
                     answer = input().strip().lower()
-                    if answer not in ("y", ""):
+                    if answer in ("a", "all"):
+                        self.auto_approve_task = True
+                    elif answer not in ("y", ""):
                         return "Cancelled by user."
                 else:
                     console.print(f"\n[bold yellow]⚠️ Workspace File Edit Request[/bold yellow]")
                     console.print(f"Target path: [cyan]{target}[/cyan]")
                     console.print(f"[red]- Removing:[/red]\n{target_content[:300]}")
                     console.print(f"[green]+ Adding:[/green]\n{replacement_content[:300]}")
-                    console.print("[dim]Options: [bold]y[/bold]=apply  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
+                    console.print("[dim]Options: [bold]y[/bold]=apply  [bold]a[/bold]=approve all  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
                     try:
-                        choice = input("Choice [y/n/e]: ").strip().lower()
+                        choice = input("Choice [y/n/a/e]: ").strip().lower()
                     except (KeyboardInterrupt, EOFError):
                         choice = "n"
                     if choice == "e":
                         self._explain_edit(target_content, replacement_content)
                         try:
-                            choice = input("Apply after explanation? [y/n]: ").strip().lower()
+                            choice = input("Apply after explanation? [y/n/a]: ").strip().lower()
                         except (KeyboardInterrupt, EOFError):
                             choice = "n"
-                    if choice != "y":
+                    if choice in ("a", "all"):
+                        self.auto_approve_task = True
+                    elif choice not in ("y", ""):
                         return "Cancelled by user."
 
             target.write_text(new_content, encoding="utf-8")
@@ -329,14 +343,7 @@ class WorkspaceTools:
             return f"Error editing file '{path}': {e}"
 
     def _explain_edit(self, target_content: str, replacement_content: str) -> None:
-        """Use the LLM to explain what a proposed edit does and why.
-
-        Calls the router with a brief explanation request and prints the result.
-
-        Args:
-            target_content: The original code being replaced.
-            replacement_content: The new code being inserted.
-        """
+        """Use the LLM to explain what a proposed edit does and why."""
         prompt = (
             "Explain in 2-3 sentences what the following code change does and "
             "why it might be necessary:\n\n"
@@ -392,45 +399,35 @@ class WorkspaceTools:
             return f"Error running grep search: {e}"
 
     def run_command(self, command: str, require_approval: bool = True) -> str:
-        """Run *command* as a shell command, with optional approval prompt.
-
-        Args:
-            command: Shell command string to execute.
-            require_approval: If True, prompt before running.
-
-        Returns:
-            String combining exit code, stdout, and stderr.
-        """
-        if require_approval:
+        """Run *command* as a shell command, with optional approval prompt."""
+        if require_approval and not self.auto_approve_task:
             if self.accessible:
-                print(f"permission_required: Run command '{command}'? [y/n/e=explain]: ")
+                print(f"permission_required: Run command '{command}'? [y/n/a=all/e=explain]: ")
                 try:
                     answer = input().strip().lower()
                 except (KeyboardInterrupt, EOFError):
                     answer = "n"
-                if answer == "e":
-                    self._explain_command(command)
-                    try:
-                        answer = input("Run after explanation? [y/n]: ").strip().lower()
-                    except (KeyboardInterrupt, EOFError):
-                        answer = "n"
-                if answer != "y":
+                if answer in ("a", "all"):
+                    self.auto_approve_task = True
+                elif answer not in ("y", ""):
                     return "Command execution cancelled by user."
             else:
                 console.print(f"\n[bold yellow]⚠️ Shell Execution Request[/bold yellow]")
                 console.print(f"Command: [bold cyan]{command}[/bold cyan]")
-                console.print("[dim]Options: [bold]y[/bold]=run  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
+                console.print("[dim]Options: [bold]y[/bold]=run  [bold]a[/bold]=approve all in task  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
                 try:
-                    choice = input("Choice [y/n/e]: ").strip().lower()
+                    choice = input("Choice [y/n/a/e]: ").strip().lower()
                 except (KeyboardInterrupt, EOFError):
                     choice = "n"
                 if choice == "e":
                     self._explain_command(command)
                     try:
-                        choice = input("Run after explanation? [y/n]: ").strip().lower()
+                        choice = input("Run after explanation? [y/n/a]: ").strip().lower()
                     except (KeyboardInterrupt, EOFError):
                         choice = "n"
-                if choice != "y":
+                if choice in ("a", "all"):
+                    self.auto_approve_task = True
+                elif choice not in ("y", ""):
                     return "Command execution cancelled by user."
         try:
             proc = subprocess.run(
@@ -455,11 +452,7 @@ class WorkspaceTools:
             return f"Error running command: {e}"
 
     def _explain_command(self, command: str) -> None:
-        """Use the LLM to explain what a shell command does (Ctrl+E behaviour).
-
-        Args:
-            command: The shell command to explain.
-        """
+        """Use the LLM to explain what a shell command does."""
         prompt = (
             f"Explain in plain English what this shell command does, what it modifies, "
             f"and any potential risks:\n\n```sh\n{command}\n```"
@@ -469,7 +462,6 @@ class WorkspaceTools:
             console.print(f"\n[bold cyan]🔍 Command Explanation:[/bold cyan]\n{res.text}\n")
         except Exception as exc:
             console.print(f"[yellow]Could not generate explanation: {exc}[/yellow]")
-
 
     def git_checkpoint(self) -> str:
         """Create a temporary Git stash checkpoint before multi-file edits."""
@@ -492,6 +484,110 @@ class WorkspaceTools:
 
         self.run_command("git add .", require_approval=False)
         return self.run_command(f'git commit -m "{message}"', require_approval=self.require_approval)
+
+
+# ---------------------------------------------------------------------------
+# JSON Tool Call Extraction & Repair Helpers
+# ---------------------------------------------------------------------------
+
+def _extract_balanced_json(text: str) -> str | None:
+    """Extract the first bracket-balanced JSON substring from text."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape:
+            escape = False
+            continue
+        if c == "\\":
+            escape = True
+            continue
+        if c == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+    return None
+
+
+def _try_parse_json(candidate: str) -> dict | None:
+    """Attempt JSON parsing with multi-strategy repair fallbacks."""
+    if not candidate or not candidate.strip():
+        return None
+    candidate = candidate.strip()
+
+    # Strategy 1: standard parse
+    try:
+        data = json.loads(candidate)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # Strategy 2: strict=False (allows unescaped control chars)
+    try:
+        data = json.loads(candidate, strict=False)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # Strategy 3: repair raw newlines in string properties
+    try:
+        repaired = re.sub(
+            r'("(?:[^"\\]|\\.)*")',
+            lambda m: m.group(0).replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"),
+            candidate,
+        )
+        data = json.loads(repaired, strict=False)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    return None
+
+
+def _extract_tool_call(response_text: str) -> dict | None:
+    """Extract tool call or final_answer dictionary from LLM response."""
+    text = response_text.strip()
+    if not text:
+        return None
+
+    # 1. Look for ```json ... ``` blocks
+    for match in re.finditer(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE):
+        block = match.group(1).strip()
+        data = _try_parse_json(block)
+        if data and ("tool" in data or "final_answer" in data):
+            return data
+        balanced = _extract_balanced_json(block)
+        if balanced:
+            data = _try_parse_json(balanced)
+            if data and ("tool" in data or "final_answer" in data):
+                return data
+
+    # 2. Look for top-level balanced JSON in text
+    balanced = _extract_balanced_json(text)
+    if balanced:
+        data = _try_parse_json(balanced)
+        if data and ("tool" in data or "final_answer" in data):
+            return data
+
+    # 3. Direct parse of entire response text
+    data = _try_parse_json(text)
+    if data and ("tool" in data or "final_answer" in data):
+        return data
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -529,29 +625,45 @@ _STYLE_INSTRUCTION = """
 - Extract magic numbers and string literals into named constants.
 """
 
-_SYSTEM_PROMPT = """You are ijachi-code, an autonomous agentic pair programmer.
-You have access to the following workspace tools:
-- read_file(path, start_line, end_line)
-- write_file(path, content)
-- edit_file(path, target_content, replacement_content)
-- list_dir(path)
-- grep_search(query, search_path)
-- run_command(command)
+_SYSTEM_PROMPT = """You are ijachi-code, an autonomous agentic pair programmer running directly in the user's workspace.
 
-To use a tool, respond with a JSON block in this exact format:
+## CRITICAL EXECUTION DIRECTIVES:
+1. AUTONOMOUS FILE CREATION & SCAFFOLDING:
+   When the user asks you to build, create, scaffold, write, edit, or test code:
+   - DO NOT output code blocks in conversational markdown.
+   - DO NOT tell the user to "create these files manually" or "clone a repository".
+   - You MUST immediately issue `write_file`, `edit_file`, or `run_command` tool calls to build the files on disk directly.
+   - Create one file at a time using `write_file` until the full project is completely built and functional.
+
+2. WORKSPACE AWARENESS ON STATUS QUERIES:
+   When the user asks status questions (e.g. "are you done?", "what is the status?", "how do I see/run the app?"):
+   - Inspect the workspace or reference previous context before answering.
+   - If files exist (e.g. app.py), provide concrete instructions on how to run them (e.g. `python app.py`).
+
+3. TOOL CALL FORMAT:
+To execute a tool, your entire response MUST be a single valid JSON block in this exact schema:
 ```json
 {
-  "thought": "Your reasoning steps here",
+  "thought": "Clear explanation of what you are doing and which file you are writing",
   "tool": "tool_name",
   "args": { ... }
 }
 ```
 
-If no further tool calls are required and your task is complete, respond with:
+Available tools:
+- read_file(path: str, start_line: int | None, end_line: int | None)
+- write_file(path: str, content: str)
+- edit_file(path: str, target_content: str, replacement_content: str)
+- list_dir(path: str)
+- grep_search(query: str, search_path: str)
+- run_command(command: str)
+
+4. COMPLETION:
+Only when all required files are written and the task is 100% complete, respond with:
 ```json
 {
-  "thought": "Final summary of work done",
-  "final_answer": "Complete final answer here"
+  "thought": "Summary of everything created and verified",
+  "final_answer": "Complete summary and instructions for the user"
 }
 ```
 """ + _STYLE_INSTRUCTION
@@ -641,6 +753,9 @@ class AgenticRouter:
         steps: list[AgentStep] = []
         total_cost = 0.0
 
+        # Reset task-level approval cache for each new user run
+        self.tools.auto_approve_task = False
+
         # Auto-activate skills matching the task
         active_skills = self._skill_manager.get_active_skills(task)
         skill_prompt = self._skill_manager.build_skill_prompt(active_skills)
@@ -677,17 +792,17 @@ class AgenticRouter:
 
             response_text = res.text.strip()
 
-            # Parse JSON tool call from LLM response
-            json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
-            if not json_match:
-                json_match = re.search(r"(\{.*\})", response_text, re.DOTALL)
+            # Parse JSON tool call using robust multi-layer extractor
+            parsed = _extract_tool_call(response_text)
 
-            parsed = None
-            if json_match:
-                try:
-                    parsed = json.loads(json_match.group(1))
-                except Exception:
-                    pass
+            # If the response looks like an attempted tool call but failed extraction, prompt retry
+            if parsed is None and any(k in response_text for k in ('"tool"', '"args"', 'write_file', 'edit_file', 'read_file', 'list_dir')):
+                current_prompt += (
+                    f"\nAssistant: {response_text}\n"
+                    f"System Error: Invalid JSON syntax in tool call. Respond ONLY with a single valid JSON block matching:\n"
+                    f"```json\n{{\"thought\": \"reasoning\", \"tool\": \"tool_name\", \"args\": {{...}}}}\n```"
+                )
+                continue
 
             if not parsed or "final_answer" in parsed:
                 final_text = parsed.get("final_answer", response_text) if parsed else response_text
@@ -716,8 +831,18 @@ class AgenticRouter:
                 print(f"ijachi: {thought}")
                 print(f"tool: {tool_name}({list(args.keys())})")
             else:
-                console.print(f"[dim]Thought: {thought}[/dim]")
-                console.print(f"[bold yellow]Tool Call: {tool_name}({args})[/bold yellow]")
+                if thought:
+                    console.print(f"[dim]Thought: {thought}[/dim]")
+                # Format friendly summary
+                arg_parts = []
+                for k, v in (args or {}).items():
+                    if isinstance(v, str) and len(v) > 60:
+                        lines = v.count("\n") + 1
+                        arg_parts.append(f"{k}=... ({lines} lines)")
+                    else:
+                        arg_parts.append(f"{k}={v!r}")
+                tool_display = f"🛠  {tool_name}({', '.join(arg_parts)})"
+                console.print(f"[bold yellow]{tool_display}[/bold yellow]")
 
             tool_output = ""
             if tool_name == "read_file":
