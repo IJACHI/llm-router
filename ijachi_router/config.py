@@ -25,6 +25,11 @@ _REPO_ROOT = Path(__file__).parent.parent
 _DEFAULT_MODELS_YAML = _REPO_ROOT / "models.yaml"
 _USER_CONFIG_PATH = Path.home() / ".ijachi-llmr" / "config.yaml"
 
+
+def default_models_yaml_path() -> Path:
+    """Return the default bundled models.yaml path used by the router."""
+    return _DEFAULT_MODELS_YAML
+
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
@@ -82,8 +87,11 @@ class RouterConfig:
         return [m for m in self.models if m.provider == provider]
 
     def available_models(self) -> list[ModelConfig]:
-        """Return only models whose provider has a key configured."""
-        return [m for m in self.models if m.provider in self.available_providers]
+        """Return only enabled models whose provider has a key configured."""
+        return [
+            m for m in self.models
+            if m.provider in self.available_providers and "disabled" not in m.tags
+        ]
 
     def models_for_category(self, category: str) -> list[ModelConfig]:
         """Return available models that have *category* in their tags."""

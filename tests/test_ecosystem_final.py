@@ -49,16 +49,13 @@ def test_sdk_generator(tmp_path):
 
 
 def test_stream_route(monkeypatch):
-    mock_res = GenerationResult(
-        text="Hello world test",
-        model="gpt-4o",
-        provider="openai",
-        cost_usd=0.0001,
-        latency_s=0.1,
-        input_tokens=10,
-        output_tokens=5,
-    )
-    monkeypatch.setattr("ijachi_router.streaming.route", lambda *args, **kwargs: mock_res)
+    """stream_route delegates to Router.stream and yields token chunks."""
+
+    class FakeRouter:
+        def stream(self, *args, **kwargs):
+            return iter(["Hello ", "world ", "test"])
+
+    monkeypatch.setattr("ijachi_router.streaming.Router", FakeRouter)
 
     chunks = list(stream_route("Test prompt"))
     assert len(chunks) == 3

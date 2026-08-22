@@ -65,6 +65,8 @@ class TranscriptTurn:
     """Output token count."""
     tool_calls: list[ToolCall] = field(default_factory=list)
     """Tool calls made during this assistant turn."""
+    telemetry_summary: str = ""
+    """Claude Code-style telemetry roll-up for this turn (e.g. 'read 2 files, ran 1 command')."""
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +108,6 @@ class Transcript:
             content: The user's raw prompt text.
         """
         self.turns.append(TranscriptTurn(role="user", content=content))
-
     def add_assistant_turn(
         self,
         content: str,
@@ -116,17 +117,19 @@ class Transcript:
         input_tokens: int = 0,
         output_tokens: int = 0,
         tool_calls: list[ToolCall] | None = None,
+        telemetry_summary: str = "",
     ) -> None:
         """Record an assistant response.
 
         Args:
             content: The assistant's response text.
             model: Model name used for this response.
-            provider: Provider name used for this response.
+            provider: Provider used for this response.
             cost_usd: Cost of this response in USD.
             input_tokens: Input token count.
             output_tokens: Output token count.
             tool_calls: List of tool calls made during this response.
+            telemetry_summary: Telemetry roll-up string for this turn.
         """
         self._total_cost += cost_usd
         self.turns.append(TranscriptTurn(
@@ -138,6 +141,7 @@ class Transcript:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             tool_calls=tool_calls or [],
+            telemetry_summary=telemetry_summary,
         ))
 
     def add_tool_call(self, tool_name: str, args: dict, output: str, cost_usd: float = 0.0) -> None:
@@ -177,9 +181,11 @@ class Transcript:
 
         model_tag = f"[dim cyan]{turn.model}[/dim cyan] " if turn.model else ""
         cost_tag = f"[dim]${turn.cost_usd:.4f}[/dim] " if turn.cost_usd else ""
+        telemetry_tag = f"[dim]({turn.telemetry_summary})[/dim]\n" if turn.telemetry_summary else ""
         header = (
             f"\n[bold bright_green]── ijachi[/bold bright_green] "
             f"{model_tag}{cost_tag}[dim]{ts}[/dim]\n"
+            f"{telemetry_tag}"
         )
         body = turn.content + "\n"
 

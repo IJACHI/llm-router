@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import yaml
-from ijachi_router.config import load_config, ModelConfig, RouterConfig
+from ijachi_router.config import default_models_yaml_path, load_config, ModelConfig, RouterConfig
 
 
 class ModelManager:
     """Manages model candidate definitions in models.yaml."""
 
     def __init__(self, models_yaml: Path | str | None = None):
-        self.models_yaml = Path(models_yaml or Path.cwd() / "models.yaml").resolve()
+        self.models_yaml = Path(models_yaml or default_models_yaml_path()).resolve()
 
     def list_models(self) -> list[ModelConfig]:
         """Load and return all model candidate configurations."""
@@ -56,18 +56,26 @@ class ModelManager:
         return f"Successfully added model '{model_id}' ({provider}) to models.yaml."
 
     def toggle_model(self, model_id: str) -> str:
-        """Toggle a model's tags/active status in models.yaml."""
+        """Toggle a model's enabled/disabled status in models.yaml."""
         config = load_config(self.models_yaml)
-        found = False
+        target = None
         for m in config.models:
             if m.model_id == model_id:
-                found = True
+                target = m
                 break
 
-        if not found:
+        if target is None:
             return f"Model '{model_id}' not found in models.yaml."
 
-        return f"Toggled model '{model_id}' status in configuration."
+        if "disabled" in target.tags:
+            target.tags = [t for t in target.tags if t != "disabled"]
+            status = "enabled"
+        else:
+            target.tags.append("disabled")
+            status = "disabled"
+
+        self._save_models_yaml(config)
+        return f"Model '{model_id}' is now {status} in models.yaml."
 
     def _save_models_yaml(self, config: RouterConfig) -> None:
         """Write RouterConfig models back to models.yaml."""
@@ -79,6 +87,7 @@ class ModelManager:
                 "speed_tier": m.speed_tier,
                 "input_per_1k": m.input_per_1k,
                 "output_per_1k": m.output_per_1k,
+                "max_context": m.max_context,
                 "tags": m.tags,
             })
         data = {

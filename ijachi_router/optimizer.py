@@ -92,6 +92,17 @@ _OPTIMIZERS = {
     "mistral": _optimize_mistral,
     "together": _optimize_openai,
     "openrouter": _optimize_openai,
+    "moonshot": _optimize_openai,
+    "qwen": _optimize_openai,
+    "perplexity": _optimize_openai,
+    "cohere": _optimize_openai,
+    "cerebras": _optimize_openai,
+    "sambanova": _optimize_openai,
+    "fireworks": _optimize_openai,
+    "huggingface": _optimize_openai,
+    "custom": _optimize_openai,
+    "azure": _optimize_openai,
+    "bedrock": _optimize_anthropic,
 }
 
 

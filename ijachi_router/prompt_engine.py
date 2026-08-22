@@ -169,6 +169,11 @@ def _make_toolbar(
     permission_mode: str,
     context_pct: float,
     git_branch: str,
+    history_index: int = 0,
+    history_total: int = 0,
+    accept_edits_on: bool = False,
+    agent_count: int = 0,
+    toast_badge: str = "",
 ) -> Callable[[], HTML]:
     """Return a prompt_toolkit bottom_toolbar callable that renders the status bar.
 
@@ -179,6 +184,11 @@ def _make_toolbar(
         permission_mode: 'manual', 'accept-edits', 'plan', or 'auto'.
         context_pct: Context window utilization 0.0–1.0.
         git_branch: Current git branch name (empty if not a git repo).
+        history_index: Current position in prompt history.
+        history_total: Total number of turns so far.
+        accept_edits_on: Whether auto-accept edits mode is enabled.
+        agent_count: Number of active background agents/tasks.
+        toast_badge: Optional transient toast badge markup.
 
     Returns:
         A callable that prompt_toolkit calls to render the toolbar HTML.
@@ -198,15 +208,31 @@ def _make_toolbar(
     cwd_str = str(cwd).replace(home, "~")
     model_short = model.split("/")[-1][:28]
 
+    history_str = ""
+    if history_total > 0:
+        history_str = f" — History {history_index}/{history_total} —"
+
+    accept_str = "▶▶ accept edits on" if accept_edits_on else "▶▶ accept edits off"
+    agent_str = f" ⇦ {agent_count} agent{'s' if agent_count != 1 else ''}" if agent_count else ""
+
     def toolbar() -> HTML:
-        return HTML(
-            f"<b>🤖 {model_short}</b>"
-            f"  <ansicyan>{cwd_str}</ansicyan>"
-            f"<ansigreen>{branch_str}</ansigreen>"
-            f"  <ansiblue>{ctx_bar}</ansiblue>"
-            f"  <ansiyellow>{cost_str}</ansiyellow>"
-            f"  <ansigray>| {mode_label}</ansigray>"
-        )
+        parts = [
+            f"<b>🤖 {model_short}</b>",
+            f"  <ansicyan>{cwd_str}</ansicyan>",
+            f"<ansigreen>{branch_str}</ansigreen>",
+            f"  <ansiblue>{ctx_bar}</ansiblue>",
+            f"  <ansiyellow>{cost_str}</ansiyellow>",
+        ]
+        if history_str:
+            parts.append(f"  <ansimagenta>{history_str}</ansimagenta>")
+        parts.append(f"  <ansigray>| {mode_label}</ansigray>")
+        parts.append(f"  <ansigray>| {accept_str}</ansigray>")
+        parts.append(f"  <ansigray>| esc interrupt | ctrl+t tasks | ctrl+o transcript</ansigray>")
+        if agent_str:
+            parts.append(f"  <ansiyellow>{agent_str}</ansiyellow>")
+        if toast_badge:
+            parts.append(f"  {toast_badge}")
+        return HTML("".join(parts))
 
     return toolbar
 
@@ -227,30 +253,32 @@ def _get_git_branch(cwd: Path) -> str:
 # Keybinding help
 # ---------------------------------------------------------------------------
 
-_HELP_TEXT = """
-╔══════════════════════════════════════════════════════════╗
-║           ijachi-code Keyboard Shortcuts                 ║
-╠══════════════════════════════════════════════════════════╣
-║  Enter          Submit prompt                            ║
-║  Ctrl+J         New line (multi-line input)              ║
-║  \\+Enter        New line (alternate)                     ║
-║  Up / Down      Recall prompt history                    ║
-║  Ctrl+R         Search prompt history                    ║
-║  Ctrl+S         Stash/restore current draft              ║
-║  Ctrl+L         Clear / redraw screen                    ║
-║  Ctrl+O         Open transcript viewer                   ║
-║  Ctrl+T         Toggle task checklist                    ║
-║  Ctrl+B         Background current Bash command          ║
-║  Ctrl+C / Esc   Cancel / interrupt                       ║
-║  Double-Esc     Clear draft or open rewind menu          ║
-║  @<path>        Insert file path autocomplete            ║
-║  /<command>     Open slash-command launcher              ║
-║  !<cmd>         Run shell command inline                 ║
-║  ?              Show this help (from empty prompt)       ║
-║  exit / quit    End session                              ║
-╚══════════════════════════════════════════════════════════╝
+_HELP_TEXT = r"""
+╔══════════════════════════════════════════════════════════════════╗
+║           ijachi-code Keyboard Shortcuts                         ║
+╠══════════════════════════════════════════════════════════════════╣
+║  Enter              Submit prompt                                  ║
+║  Ctrl+J             New line (multi-line input)                  ║
+║  \ + Enter         New line (alternate)                         ║
+║  Up / Down          Recall prompt history                        ║
+║  Ctrl+R             Search prompt history                          ║
+║  Ctrl+S             Stash/restore current draft                    ║
+║  Ctrl+L             Clear / redraw screen                          ║
+║  Ctrl+O             Open transcript viewer                         ║
+║  Ctrl+T             Toggle live task checklist                     ║
+║  Shift+Tab          Cycle permission mode                            ║
+║  Ctrl+B             Background current Bash command              ║
+║  Ctrl+C / Esc       Cancel / interrupt                             ║
+║  Double-Esc         Clear draft or open rewind menu                ║
+║  @<path>            Insert file path autocomplete                  ║
+║  /<command>         Open slash-command launcher                    ║
+║  /mode              Cycle permission mode                            ║
+║  /init              Generate CLAUDE.md context file                ║
+║  !<cmd>             Run shell command inline                      ║
+║  ?                  Show this help (from empty prompt)             ║
+║  exit / quit        End session                                    ║
+╚══════════════════════════════════════════════════════════════════╝
 """
-
 
 # ---------------------------------------------------------------------------
 # Draft stash
@@ -286,7 +314,7 @@ class PromptEngine:
     #: Built-in slash commands offered in the '/' launcher
     BUILTIN_COMMANDS: list[str] = [
         "model", "priority", "mode", "theme", "config", "tasks", "skills", "help",
-        "memory", "stats", "exit", "quit",
+        "memory", "stats", "init", "exit", "quit",
     ]
 
     def __init__(
@@ -314,6 +342,11 @@ class PromptEngine:
         self._context_pct: float = 0.0
         self._paste_store: dict[int, str] = {}  # paste_index → full content
         self._esc_count: list[int] = [0]  # Double-Esc tracker
+        self._history_index: int = 0
+        self._history_total: int = 0
+        self._agent_count: int = 0
+        self._toast_badge: str = ""
+        self._accept_edits_on: bool = False
 
         # History file scoped by CWD (hex suffix avoids path separator issues)
         hist_dir = Path.home() / ".ijachi-llmr" / "prompt_history"
@@ -466,6 +499,11 @@ class PromptEngine:
         model: str | None = None,
         cost_usd: float | None = None,
         context_pct: float | None = None,
+        history_index: int | None = None,
+        history_total: int | None = None,
+        agent_count: int | None = None,
+        toast_badge: str | None = None,
+        accept_edits_on: bool | None = None,
     ) -> str | None:
         """Show the prompt and return the user's input.
 
@@ -477,6 +515,11 @@ class PromptEngine:
             model: Override the model name in the status bar.
             cost_usd: Override cumulative cost in the status bar.
             context_pct: Override context utilization (0.0–1.0) in the status bar.
+            history_index: Current position in conversation history.
+            history_total: Total conversation turns so far.
+            agent_count: Number of active background agents/tasks.
+            toast_badge: Transient toast badge markup for the status bar.
+            accept_edits_on: Whether auto-accept edits mode is enabled.
 
         Returns:
             User input string, or None on Ctrl+C / EOF.
@@ -487,6 +530,16 @@ class PromptEngine:
             self._session_cost = cost_usd
         if context_pct is not None:
             self._context_pct = context_pct
+        if history_index is not None:
+            self._history_index = history_index
+        if history_total is not None:
+            self._history_total = history_total
+        if agent_count is not None:
+            self._agent_count = agent_count
+        if toast_badge is not None:
+            self._toast_badge = toast_badge
+        if accept_edits_on is not None:
+            self._accept_edits_on = accept_edits_on
 
         self._completer.invalidate_cache()
         git_branch = _get_git_branch(self.workspace_root)
@@ -505,6 +558,11 @@ class PromptEngine:
             permission_mode=self.permission_mode,
             context_pct=self._context_pct,
             git_branch=git_branch,
+            history_index=self._history_index,
+            history_total=self._history_total,
+            accept_edits_on=self._accept_edits_on,
+            agent_count=self._agent_count,
+            toast_badge=self._toast_badge,
         )
 
         try:
@@ -524,7 +582,17 @@ class PromptEngine:
         # '?' from empty prompt → show help
         if raw.strip() == "?":
             print(_HELP_TEXT)
-            return self.prompt(prompt_text, model, cost_usd, context_pct)
+            return self.prompt(
+                prompt_text,
+                model,
+                cost_usd,
+                context_pct,
+                history_index=history_index,
+                history_total=history_total,
+                agent_count=agent_count,
+                toast_badge=toast_badge,
+                accept_edits_on=accept_edits_on,
+            )
 
         # '!' shell mode
         is_shell, shell_output = self._handle_shell_mode(raw)
@@ -558,6 +626,23 @@ class PromptEngine:
             idx = int(m.group(1))
             return self._paste_store.get(idx, m.group(0))
         return re.sub(r"\[Pasted text #(\d+)[^\]]*\]", replacer, text)
+
+    def set_history_index(self, index: int, total: int) -> None:
+        """Update the history position shown in the status bar."""
+        self._history_index = index
+        self._history_total = total
+
+    def set_agent_count(self, count: int) -> None:
+        """Update the live background-agent count in the status bar."""
+        self._agent_count = count
+
+    def set_toast_badge(self, badge: str) -> None:
+        """Set a transient toast badge markup for the status bar."""
+        self._toast_badge = badge
+
+    def set_accept_edits_on(self, enabled: bool) -> None:
+        """Toggle the accept-edits indicator in the status bar."""
+        self._accept_edits_on = enabled
 
     def update_cost(self, cost_usd: float) -> None:
         """Update the cumulative session cost shown in the status bar.

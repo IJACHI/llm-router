@@ -27,9 +27,15 @@ from typing import Any
 from rich.console import Console
 from rich.prompt import Confirm
 
+from ijachi_router.background_ui import BackgroundUIManager
 from ijachi_router.core import route
+from ijachi_router.diff_view import DiffRenderer
 from ijachi_router.formatter import CodeFormatter
+from ijachi_router.plan_mode import PlanModePlanner, is_plan_mode
 from ijachi_router.security import scan_and_fix, format_security_summary, scan
+from ijachi_router.task_panel import TaskPanel
+from ijachi_router.telemetry import telemetry, EventType
+from ijachi_router.toasts import toast_manager
 from ijachi_router.validator import validate
 
 console = Console()
@@ -72,74 +78,11 @@ def _notify(title: str, message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task Checklist
+# Task Panel (live checklist)
 # ---------------------------------------------------------------------------
 
-@dataclass
-class ChecklistItem:
-    """A single item in the agent task checklist."""
-    label: str
-    """Human-readable task description."""
-    done: bool = False
-    """True once the step is marked complete."""
-
-
-class TaskChecklist:
-    """Real-time task progress display shown during multi-step agent runs.
-
-    In normal mode renders a Rich live panel; in accessibility mode prints
-    plain labeled lines.
-
-    Args:
-        accessible: If True, use plain sequential output instead of Rich panels.
-    """
-
-    def __init__(self, accessible: bool = False) -> None:
-        self.items: list[ChecklistItem] = []
-        self.accessible = accessible
-
-    def add(self, label: str) -> None:
-        """Register a new checklist item.
-
-        Args:
-            label: Description of the step to track.
-        """
-        self.items.append(ChecklistItem(label=label))
-        if self.accessible:
-            print(f"task: [ ] {label}")
-
-    def complete(self, index: int) -> None:
-        """Mark item at *index* as done and re-render.
-
-        Args:
-            index: Zero-based index of the item to mark complete.
-        """
-        if 0 <= index < len(self.items):
-            self.items[index].done = True
-            if self.accessible:
-                print(f"task: [x] {self.items[index].label}")
-            else:
-                self._render()
-
-    def _render(self) -> None:
-        """Print the current checklist state to the console."""
-        lines = []
-        for item in self.items:
-            icon = "[green]✓[/green]" if item.done else "[yellow]○[/yellow]"
-            lines.append(f"  {icon} {item.label}")
-        console.print("[bold cyan]📋 Task Checklist[/bold cyan]")
-        for line in lines:
-            console.print(line)
-
-    def render(self) -> None:
-        """Publicly trigger a checklist render (used by Ctrl+T toggle)."""
-        if self.accessible:
-            for item in self.items:
-                mark = "x" if item.done else " "
-                print(f"task: [{mark}] {item.label}")
-        else:
-            self._render()
-
+# Re-export TaskPanel alias for callers that used the old checklist API.
+TaskChecklist = TaskPanel
 
 # ---------------------------------------------------------------------------
 # Workspace Tool Set
@@ -310,8 +253,7 @@ class WorkspaceTools:
                 else:
                     console.print(f"\n[bold yellow]⚠️ Workspace File Edit Request[/bold yellow]")
                     console.print(f"Target path: [cyan]{target}[/cyan]")
-                    console.print(f"[red]- Removing:[/red]\n{target_content[:300]}")
-                    console.print(f"[green]+ Adding:[/green]\n{replacement_content[:300]}")
+                    DiffRenderer(accessible=self.accessible).print(existing, new_content, str(path))
                     console.print("[dim]Options: [bold]y[/bold]=apply  [bold]a[/bold]=approve all  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
                     try:
                         choice = input("Choice [y/n/a/e]: ").strip().lower()
@@ -712,8 +654,9 @@ Only after ALL files have been written to disk using `write_file` and verified, 
 class AgenticRouter:
     """Autonomous agentic router that ties multi-provider routing to workspace tools.
 
-    Integrates skill auto-activation, code formatting, task checklist display,
-    and desktop notifications into the agent execution loop.
+    Integrates skill auto-activation, code formatting, live task panel,
+    telemetry, plan mode, background subagents, diff approval, and desktop
+    notifications into the agent execution loop.
 
     Args:
         root_dir: Workspace root. Defaults to cwd.
@@ -723,6 +666,9 @@ class AgenticRouter:
         auto_format: If True, auto-format files after write/edit tool calls.
         require_comments: If True, inject missing docstrings/JSDoc headers.
         accessible: If True, use plain sequential labeled output (screen-reader mode).
+        force_model: Pin a specific model ID.
+        context_manager: Optional shared ContextManager instance.
+        permission_mode: One of 'manual', 'accept-edits', 'plan', 'auto'.
     """
 
     def __init__(
@@ -736,6 +682,7 @@ class AgenticRouter:
         accessible: bool = False,
         force_model: str | None = None,
         context_manager: Any | None = None,
+        permission_mode: str = "manual",
     ):
         self.formatter = CodeFormatter(
             style_guide=style_guide,
@@ -751,7 +698,10 @@ class AgenticRouter:
         self.force_model = force_model
         self.require_approval = require_approval
         self.accessible = accessible
-        self.checklist = TaskChecklist(accessible=accessible)
+        self.permission_mode = permission_mode
+        self.checklist = TaskPanel(accessible=accessible)
+        self.planner = PlanModePlanner(workspace_root=self.tools.root_dir, accessible=accessible)
+        self.background = BackgroundUIManager()
 
         # Multi-layer Context Memory Manager (L1 Global, L2 Session, L3 Task)
         if context_manager is not None:
@@ -778,9 +728,9 @@ class AgenticRouter:
     def run(self, task: str, max_steps: int = 10) -> AgentResult:
         """Execute *task* autonomously using the workspace tool set.
 
-        Auto-activates relevant skills from SkillManager and prepends their
-        instructions to the system prompt. Displays a task checklist and
-        notifies on completion.
+        Auto-activates relevant skills, records telemetry, drives the live task
+        panel, and surfaces completion notifications. If permission_mode is
+        'plan', a `.claude/plan.md` is generated and confirmed first.
 
         Args:
             task: The user's task description or instruction.
@@ -796,12 +746,29 @@ class AgenticRouter:
         # Reset task-level approval cache for each new user run
         self.tools.auto_approve_task = False
 
+        # Plan mode: generate and confirm plan before any code changes
+        if is_plan_mode(self.permission_mode):
+            preview = self.planner.plan(task)
+            if not self.planner.confirm_plan(preview):
+                return AgentResult(
+                    final_text="Plan not approved. No changes were made.",
+                    steps=[],
+                    total_cost_usd=0.0,
+                    completed=False,
+                )
+
+        telemetry.start_run(task)
+
         # Auto-activate skills matching the task
         active_skills = self._skill_manager.get_active_skills(task)
         skill_prompt = self._skill_manager.build_skill_prompt(active_skills)
         if active_skills and not self.accessible:
             skill_names = ", ".join(s.name for s in active_skills)
             console.print(f"[dim cyan]⚡ Activated skills: {skill_names}[/dim cyan]")
+        telemetry.emit(
+            EventType.CUSTOM,
+            f"Activated skills: {', '.join(s.name for s in active_skills) or 'none'}",
+        )
 
         # Build full system prompt: base + style guide + active skills
         style_block = self.formatter.get_style_prompt()
@@ -814,55 +781,138 @@ class AgenticRouter:
         else:
             current_prompt = f"{full_system_prompt}\n\nTask: {task}\n"
 
-        for step_idx in range(1, max_steps + 1):
-            if self.accessible:
-                print(f"ijachi: [step {step_idx}/{max_steps}] thinking...")
-            else:
-                console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
+        # Live task panel (disabled in accessibility mode to keep output plain)
+        from contextlib import nullcontext
 
-            # Route with isolated system prompt and high token limit for file generation
-            res = route(
-                prompt=current_prompt,
-                priority=self.priority,
-                force_model=self.force_model,
-                _classify_as=task,
-                system_prompt=full_system_prompt,
-                max_tokens=8192,
-            )
-            total_cost += res.cost_usd
+        live_ctx = self.checklist.live() if not self.accessible else nullcontext(self.checklist)
+        active_idx = self.checklist.add("Activate skills")
+        self.checklist.complete(active_idx)
+        loop_idx = self.checklist.add("Execute task steps")
+        final_idx = self.checklist.add("Finalize result")
 
-            response_text = res.text.strip()
+        with live_ctx:
+            self.checklist.set_active(loop_idx)
 
-            # Parse JSON tool call using robust multi-layer extractor
-            parsed = _extract_tool_call(response_text)
+            for step_idx in range(1, max_steps + 1):
+                self.checklist.update_label(loop_idx, f"Execute step {step_idx}/{max_steps}")
+                self.checklist.set_state("thinking")
 
-            # If no JSON tool call was found, check if the model outputted markdown code files
-            if parsed is None:
-                extracted_files = _extract_files_from_markdown(response_text)
-                if extracted_files:
-                    if not self.accessible:
-                        console.print(f"[bold green]⚡ Auto-extracted {len(extracted_files)} files from model output. Writing to disk...[/bold green]")
-                    written_files = []
-                    for f_path, f_content in extracted_files:
-                        write_res = self.tools.write_file(f_path, f_content, require_approval=self.require_approval)
-                        written_files.append(f_path)
-                        steps.append(
-                            AgentStep(
-                                step_number=step_idx,
-                                thought=f"Auto-extracted '{f_path}' from markdown output",
-                                tool_name="write_file",
-                                tool_args={"path": f_path, "content": f_content[:100] + "..."},
-                                tool_output=write_res,
-                                model_used=res.model,
-                                provider=res.provider,
-                                cost_usd=res.cost_usd / len(extracted_files),
-                            )
-                        )
+                if self.accessible:
+                    print(f"ijachi: [step {step_idx}/{max_steps}] thinking...")
+                else:
+                    console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
+
+                # Route with isolated system prompt and high token limit for file generation
+                res = route(
+                    prompt=current_prompt,
+                    priority=self.priority,
+                    force_model=self.force_model,
+                    _classify_as=task,
+                    system_prompt=full_system_prompt,
+                    max_tokens=8192,
+                )
+                total_cost += res.cost_usd
+                telemetry.emit_llm_call(
+                    model=res.model,
+                    cost_usd=res.cost_usd,
+                    tokens_in=res.input_tokens,
+                    tokens_out=res.output_tokens,
+                )
+                self.checklist.add_tokens(res.input_tokens, res.output_tokens)
+
+                response_text = res.text.strip()
+
+                # Parse JSON tool call using robust multi-layer extractor
+                parsed = _extract_tool_call(response_text)
+
+                # If no JSON tool call was found, check if the model outputted markdown code files
+                if parsed is None:
+                    extracted_files = _extract_files_from_markdown(response_text)
+                    if extracted_files:
                         if not self.accessible:
-                            console.print(f"[green]✓ Created {f_path}[/green]")
-                    
-                    final_text = f"Successfully created {len(written_files)} files: {', '.join(written_files)}.\n\n" + response_text
-                    _notify("ijachi-code", f"Created {len(written_files)} files ✓")
+                            console.print(f"[bold green]⚡ Auto-extracted {len(extracted_files)} files from model output. Writing to disk...[/bold green]")
+                        written_files = []
+                        for f_path, f_content in extracted_files:
+                            telemetry.emit_tool_call("write_file", {"path": f_path})
+                            write_res = self.tools.write_file(
+                                f_path, f_content, require_approval=self.require_approval
+                            )
+                            telemetry.emit_tool_output("write_file", write_res)
+                            written_files.append(f_path)
+                            steps.append(
+                                AgentStep(
+                                    step_number=step_idx,
+                                    thought=f"Auto-extracted '{f_path}' from markdown output",
+                                    tool_name="write_file",
+                                    tool_args={"path": f_path, "content": f_content[:100] + "..."},
+                                    tool_output=write_res,
+                                    model_used=res.model,
+                                    provider=res.provider,
+                                    cost_usd=res.cost_usd / len(extracted_files),
+                                )
+                            )
+                            if not self.accessible:
+                                console.print(f"[green]✓ Created {f_path}[/green]")
+
+                        self.checklist.complete(loop_idx)
+                        self.checklist.set_active(final_idx)
+                        final_text = f"Successfully created {len(written_files)} files: {', '.join(written_files)}.\n\n" + response_text
+                        self.checklist.complete(final_idx)
+                        rollup = telemetry.finish_run(completed=True)
+                        if not self.accessible:
+                            console.print(f"[dim]{rollup}[/dim]")
+                        _notify("ijachi-code", f"Created {len(written_files)} files ✓")
+                        toast_manager.push(f"Created {len(written_files)} files ✓", level="success")
+                        if hasattr(self, "ctx"):
+                            self.ctx.record_task(
+                                task=task,
+                                result_text=final_text,
+                                model=res.model if res else "auto",
+                                cost_usd=total_cost,
+                            )
+                        return AgentResult(
+                            final_text=final_text,
+                            steps=steps,
+                            total_cost_usd=total_cost,
+                            completed=True,
+                        )
+
+                # If the response looks like an attempted tool call but failed extraction, prompt retry
+                if parsed is None and any(
+                    k in response_text for k in ('"tool"', '"args"', 'write_file', 'edit_file', 'read_file', 'list_dir')
+                ):
+                    current_prompt += (
+                        f"\nAssistant: {response_text}\n"
+                        f"System Error: Invalid JSON syntax in tool call. Respond ONLY with a single valid JSON block matching:\n"
+                        f"```json\n{{\"thought\": \"reasoning\", \"tool\": \"tool_name\", \"args\": {{...}}}}\n```"
+                    )
+                    continue
+
+                # If it's an action task and step 1 returned pure text with no files, enforce tool usage
+                is_action_task = any(v in task.lower() for v in ("build", "create", "scaffold", "implement", "write", "make", "fix", "add"))
+                if not parsed and is_action_task and step_idx < max_steps:
+                    current_prompt += (
+                        f"\nAssistant: {response_text}\n"
+                        f"System Directive: You are an autonomous agent with workspace write privileges. "
+                        f"You MUST NOT output conversational manuals or text descriptions. "
+                        f"You MUST emit JSON tool calls (e.g. write_file) to write the files directly to the workspace.\n"
+                        f"Emit a JSON tool call block to create the first file:\n"
+                        f"```json\n{{\"thought\": \"Creating initial file\", \"tool\": \"write_file\", \"args\": {{\"path\": \"...\", \"content\": \"...\"}}}}\n```"
+                    )
+                    continue
+
+                if not parsed or "final_answer" in parsed:
+                    final_text = parsed.get("final_answer", response_text) if parsed else response_text
+                    self.checklist.complete(loop_idx)
+                    self.checklist.set_active(final_idx)
+                    self.checklist.complete(final_idx)
+                    rollup = telemetry.finish_run(completed=True)
+                    if not self.accessible:
+                        console.print(f"[dim]{rollup}[/dim]")
+                    # Notify on completion
+                    _notify("ijachi-code", "Task complete ✓")
+                    toast_manager.push("Task complete ✓", level="success")
+                    # Record in Multi-Layer Context Memory
                     if hasattr(self, "ctx"):
                         self.ctx.record_task(
                             task=task,
@@ -877,137 +927,143 @@ class AgenticRouter:
                         completed=True,
                     )
 
-            # If the response looks like an attempted tool call but failed extraction, prompt retry
-            if parsed is None and any(k in response_text for k in ('"tool"', '"args"', 'write_file', 'edit_file', 'read_file', 'list_dir')):
-                current_prompt += (
-                    f"\nAssistant: {response_text}\n"
-                    f"System Error: Invalid JSON syntax in tool call. Respond ONLY with a single valid JSON block matching:\n"
-                    f"```json\n{{\"thought\": \"reasoning\", \"tool\": \"tool_name\", \"args\": {{...}}}}\n```"
-                )
-                continue
+                thought = parsed.get("thought", "")
+                tool_name = parsed.get("tool")
+                args = parsed.get("args", {})
 
-            # If it's an action task (build, create, write, scaffold) and step 1 returned pure text with no files, enforce tool usage
-            is_action_task = any(v in task.lower() for v in ("build", "create", "scaffold", "implement", "write", "make", "fix", "add"))
-            if not parsed and is_action_task and step_idx < max_steps:
-                current_prompt += (
-                    f"\nAssistant: {response_text}\n"
-                    f"System Directive: You are an autonomous agent with workspace write privileges. "
-                    f"You MUST NOT output conversational manuals or text descriptions. "
-                    f"You MUST emit JSON tool calls (e.g. write_file) to write the files directly to the workspace.\n"
-                    f"Emit a JSON tool call block to create the first file:\n"
-                    f"```json\n{{\"thought\": \"Creating initial file\", \"tool\": \"write_file\", \"args\": {{\"path\": \"...\", \"content\": \"...\"}}}}\n```"
-                )
-                continue
-
-            if not parsed or "final_answer" in parsed:
-                final_text = parsed.get("final_answer", response_text) if parsed else response_text
-                # Notify on completion
-                _notify("ijachi-code", "Task complete ✓")
-                # Record in Multi-Layer Context Memory
-                if hasattr(self, "ctx"):
-                    self.ctx.record_task(
-                        task=task,
-                        result_text=final_text,
-                        model=res.model if res else "auto",
-                        cost_usd=total_cost,
-                    )
-                return AgentResult(
-                    final_text=final_text,
-                    steps=steps,
-                    total_cost_usd=total_cost,
-                    completed=True,
-                )
-
-            thought = parsed.get("thought", "")
-            tool_name = parsed.get("tool")
-            args = parsed.get("args", {})
-
-            if self.accessible:
-                print(f"ijachi: {thought}")
-                print(f"tool: {tool_name}({list(args.keys())})")
-            else:
-                if thought:
-                    console.print(f"[dim]Thought: {thought}[/dim]")
-                # Format friendly summary
-                arg_parts = []
-                for k, v in (args or {}).items():
-                    if isinstance(v, str) and len(v) > 60:
-                        lines = v.count("\n") + 1
-                        arg_parts.append(f"{k}=... ({lines} lines)")
-                    else:
-                        arg_parts.append(f"{k}={v!r}")
-                tool_display = f"🛠  {tool_name}({', '.join(arg_parts)})"
-                console.print(f"[bold yellow]{tool_display}[/bold yellow]")
-
-            tool_output = ""
-            if tool_name == "read_file":
-                tool_output = self.tools.read_file(
-                    path=args.get("path", ""),
-                    start_line=args.get("start_line"),
-                    end_line=args.get("end_line"),
-                )
-            elif tool_name == "write_file":
-                tool_output = self.tools.write_file(
-                    path=args.get("path", ""),
-                    content=args.get("content", ""),
-                    require_approval=self.require_approval,
-                )
-            elif tool_name == "edit_file":
-                tool_output = self.tools.edit_file(
-                    path=args.get("path", ""),
-                    target_content=args.get("target_content", ""),
-                    replacement_content=args.get("replacement_content", ""),
-                    require_approval=self.require_approval,
-                )
-            elif tool_name == "list_dir":
-                tool_output = self.tools.list_dir(path=args.get("path", "."))
-            elif tool_name == "grep_search":
-                tool_output = self.tools.grep_search(
-                    query=args.get("query", ""),
-                    search_path=args.get("search_path", "."),
-                )
-            elif tool_name == "run_command":
-                tool_output = self.tools.run_command(
-                    command=args.get("command", ""),
-                    require_approval=self.require_approval,
-                )
-            else:
-                tool_output = f"Unknown tool: {tool_name}"
-
-            if self.accessible:
-                if "error" in tool_output.lower() or "Exit Code: 1" in tool_output:
-                    print(f"tool_error: {tool_name} → {tool_output[:200]}")
+                if self.accessible:
+                    print(f"ijachi: {thought}")
+                    print(f"tool: {tool_name}({list(args.keys())})")
                 else:
-                    print(f"tool: {tool_name} → done")
+                    if thought:
+                        console.print(f"[dim]Thought: {thought}[/dim]")
+                    # Format friendly summary
+                    arg_parts = []
+                    for k, v in (args or {}).items():
+                        if isinstance(v, str) and len(v) > 60:
+                            lines = v.count("\n") + 1
+                            arg_parts.append(f"{k}=... ({lines} lines)")
+                        else:
+                            arg_parts.append(f"{k}={v!r}")
+                    tool_display = f"🛠  {tool_name}({', '.join(arg_parts)})"
+                    console.print(f"[bold yellow]{tool_display}[/bold yellow]")
 
-            step_record = AgentStep(
-                step_number=step_idx,
-                thought=thought,
-                tool_name=tool_name,
-                tool_args=args,
-                tool_output=tool_output,
-                model_used=res.model,
-                provider=res.provider,
-                cost_usd=res.cost_usd,
+                telemetry.emit_tool_call(tool_name, args)
+                self.checklist.set_state(f"running {tool_name}")
+
+                tool_output = ""
+                if tool_name == "read_file":
+                    tool_output = self.tools.read_file(
+                        path=args.get("path", ""),
+                        start_line=args.get("start_line"),
+                        end_line=args.get("end_line"),
+                    )
+                elif tool_name == "write_file":
+                    tool_output = self.tools.write_file(
+                        path=args.get("path", ""),
+                        content=args.get("content", ""),
+                        require_approval=self.require_approval,
+                    )
+                elif tool_name == "edit_file":
+                    tool_output = self.tools.edit_file(
+                        path=args.get("path", ""),
+                        target_content=args.get("target_content", ""),
+                        replacement_content=args.get("replacement_content", ""),
+                        require_approval=self.require_approval,
+                    )
+                elif tool_name == "list_dir":
+                    tool_output = self.tools.list_dir(path=args.get("path", "."))
+                elif tool_name == "grep_search":
+                    tool_output = self.tools.grep_search(
+                        query=args.get("query", ""),
+                        search_path=args.get("search_path", "."),
+                    )
+                elif tool_name == "run_command":
+                    tool_output = self.tools.run_command(
+                        command=args.get("command", ""),
+                        require_approval=self.require_approval,
+                    )
+                else:
+                    tool_output = f"Unknown tool: {tool_name}"
+
+                telemetry.emit_tool_output(tool_name, tool_output)
+
+                if self.accessible:
+                    if "error" in tool_output.lower() or "Exit Code: 1" in tool_output:
+                        print(f"tool_error: {tool_name} → {tool_output[:200]}")
+                    else:
+                        print(f"tool: {tool_name} → done")
+
+                step_record = AgentStep(
+                    step_number=step_idx,
+                    thought=thought,
+                    tool_name=tool_name,
+                    tool_args=args,
+                    tool_output=tool_output,
+                    model_used=res.model,
+                    provider=res.provider,
+                    cost_usd=res.cost_usd,
+                )
+                steps.append(step_record)
+
+                current_prompt += f"\nAssistant: {response_text}\nTool Output ({tool_name}):\n{tool_output}\nContinue task."
+
+            final_exit_text = "Agentic loop reached maximum steps."
+            self.checklist.complete(loop_idx)
+            self.checklist.set_active(final_idx)
+            self.checklist.complete(final_idx)
+            rollup = telemetry.finish_run(completed=False)
+            if not self.accessible:
+                console.print(f"[dim]{rollup}[/dim]")
+            toast_manager.push("Task reached maximum steps", level="warning")
+            if hasattr(self, "ctx"):
+                self.ctx.record_task(
+                    task=task,
+                    result_text=final_exit_text,
+                    model=res.model if 'res' in locals() else "auto",
+                    cost_usd=total_cost,
+                )
+            return AgentResult(
+                final_text=final_exit_text,
+                steps=steps,
+                total_cost_usd=total_cost,
+                completed=False,
             )
-            steps.append(step_record)
 
-            current_prompt += f"\nAssistant: {response_text}\nTool Output ({tool_name}):\n{tool_output}\nContinue task."
+    def spawn_subagent(self, name: str, task: str) -> str:
+        """Spawn a background subagent running on a copy of this agent's config.
 
-        final_exit_text = "Agentic loop reached maximum steps."
-        if hasattr(self, "ctx"):
-            self.ctx.record_task(
-                task=task,
-                result_text=final_exit_text,
-                model=res.model if res else "auto",
-                cost_usd=total_cost,
+        Args:
+            name: Human-readable subagent name.
+            task: Task string passed to the subagent.
+
+        Returns:
+            Background agent ID string.
+        """
+
+        def _factory() -> AgenticRouter:
+            return AgenticRouter(
+                root_dir=self.tools.root_dir,
+                priority=self.priority,
+                require_approval=self.require_approval,
+                style_guide=self.formatter.style_guide,
+                auto_format=self.formatter.auto_format,
+                require_comments=self.formatter.require_comments,
+                accessible=self.accessible,
+                force_model=self.force_model,
+                context_manager=self.ctx,
+                permission_mode=self.permission_mode,
             )
-        return AgentResult(
-            final_text=final_exit_text,
-            steps=steps,
-            total_cost_usd=total_cost,
-            completed=False,
-        )
+
+        telemetry.emit_subagent_start(name)
+        agent_id = self.background.spawn_agent(name, task, _factory)
+        toast_manager.push(f"Backgrounded agent {name}", level="info")
+        return agent_id
+
+    def set_permission_mode(self, mode: str) -> None:
+        """Update the agent's permission/autonomy mode."""
+        self.permission_mode = mode
+
 
     def fix_tests(self, test_command: str = "pytest", max_retries: int = 3) -> AgentResult:
         """Automated test repair loop: run test suite, capture failures, route fixes, and re-run until 100% pass."""

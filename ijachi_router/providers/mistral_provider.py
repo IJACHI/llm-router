@@ -1,5 +1,5 @@
 import os
-from ijachi_router.providers.base import Provider, ProviderError
+from ijachi_router.providers.base import Provider, ProviderError, _stream_openai_compatible
 
 
 class MistralProvider(Provider):
@@ -27,3 +27,22 @@ class MistralProvider(Provider):
         in_tokens = resp.usage.prompt_tokens if resp.usage else 0
         out_tokens = resp.usage.completion_tokens if resp.usage else 0
         return text, in_tokens, out_tokens
+
+    def _ping(self) -> None:
+        api_key = os.environ.get("MISTRAL_API_KEY")
+        if not api_key:
+            raise ProviderError("MISTRAL_API_KEY not set")
+        try:
+            import openai
+            client = openai.OpenAI(api_key=api_key, base_url="https://api.mistral.ai/v1")
+            client.models.list()
+        except Exception as err:
+            raise ProviderError(f"Mistral connectivity check failed: {err}") from err
+
+    def _stream(self, prompt: str, **kwargs):
+        api_key = os.environ.get("MISTRAL_API_KEY")
+        if not api_key:
+            raise ProviderError("MISTRAL_API_KEY not set")
+        yield from _stream_openai_compatible(
+            api_key, self.model_id, prompt, base_url="https://api.mistral.ai/v1", **kwargs
+        )

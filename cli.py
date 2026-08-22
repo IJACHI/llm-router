@@ -246,8 +246,9 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
     from ijachi_router.config import load_config
     from ijachi_router.providers.base import ProviderError
     from ijachi_router.transcript import Transcript
-    from ijachi_router.ui import set_theme, cycle_permission_mode
+    from ijachi_router.ui import set_theme, cycle_permission_mode, print_welcome_card
     from ijachi_router.skill_manager import SkillManager
+    from ijachi_router.toasts import toast_manager
 
     # Load persisted config and apply CLI overrides
     cfg = load_config()
@@ -255,6 +256,10 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
     acc = accessibility or cfg.accessibility
     active_theme = theme or cfg.theme
     vim_mode = vim or cfg.vim_mode
+
+    # Permission mode (cycled with /mode or Shift+Tab)
+    permission_mode = "manual"
+    accept_edits_on = False
 
     # Apply theme
     applied_theme = set_theme(active_theme)
@@ -274,16 +279,18 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
         require_comments=cfg.require_comments,
         accessible=acc,
         force_model=model,
+        permission_mode=permission_mode,
     )
 
     # Session transcript
     transcript = Transcript(session_id="chat")
 
-    # Permission mode (cycled with /mode or Shift+Tab)
-    permission_mode = "manual"
-
     # Skill manager for '/skills' slash command
     skill_manager = SkillManager(workspace_root=agent.tools.root_dir)
+
+    # Conversation turn counters for the status bar
+    history_index = 0
+    history_total = 0
 
     # Prompt engine callbacks
     def _open_transcript():
@@ -311,27 +318,34 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
     except Exception:
         engine = None  # Fallback to plain input()
 
-    # Session header
+    # Session header / welcome card
     if acc:
         print("ijachi: Interactive session started. Type 'exit' to quit.")
     else:
-        click.echo(click.style("💬 ijachi-code Interactive Agentic REPL Session", fg="cyan", bold=True))
-        click.echo(click.style(
-            f"Model: {model or f'auto ({priority})'}  Theme: {applied_theme}  Style: {style_guide}  Mode: {permission_mode}\n"
-            "/model=switch model  /priority=change routing  Ctrl+O=transcript  ?=help  exit=quit",
-            fg="bright_black",
-        ))
-        click.echo()
+        print_welcome_card(
+            model=model or f"auto ({priority})",
+            billing="API Usage Billing",
+            workspace=str(agent.tools.root_dir),
+        )
 
     session_cost = 0.0
 
     while True:
         try:
+            # Prepare live state for the status bar
+            agent_count = agent.background.active_count() if agent.background else 0
+            toast_badge = toast_manager.render_badge()
+
             # Get input via PromptEngine or plain input()
             if engine:
                 user_input = engine.prompt(
                     "ijachi-code> ",
                     cost_usd=session_cost,
+                    history_index=history_index,
+                    history_total=history_total,
+                    agent_count=agent_count,
+                    toast_badge=toast_badge,
+                    accept_edits_on=accept_edits_on,
                 )
                 if user_input is None:
                     # None = Ctrl+C or shell command handled inline
@@ -457,6 +471,7 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
 
                 elif cmd == "mode":
                     permission_mode = cycle_permission_mode(permission_mode)
+                    agent.set_permission_mode(permission_mode)
                     if engine:
                         engine.set_permission_mode(permission_mode)
                     from ijachi_router.ui import get_permission_mode_label
@@ -464,6 +479,14 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
                         f"✓ Permission mode: {get_permission_mode_label(permission_mode)}",
                         fg="cyan",
                     ))
+
+                elif cmd == "init":
+                    try:
+                        claude_md_path = agent.planner.generate_claude_md()
+                        click.echo(click.style(f"✓ Generated {claude_md_path}", fg="green"))
+                    except Exception as exc:
+                        click.echo(click.style(f"✗ Could not generate CLAUDE.md: {exc}", fg="red"))
+
                 else:
                     click.echo(click.style(f"Unknown command: /{cmd}. Type /help for commands.", fg="yellow"))
                 continue
@@ -478,12 +501,22 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
             if engine:
                 engine.update_cost(result.total_cost_usd)
 
-            # Record assistant turn in transcript
+            # Update conversation turn counters
+            history_total += 1
+            history_index = history_total
+
+            # Accept-edits mode is enabled in accept-edits/auto modes (toolbar indicator)
+            accept_edits_on = permission_mode in {"accept-edits", "auto"}
+
+            # Record assistant turn in transcript (with telemetry summary)
+            from ijachi_router.telemetry import telemetry
+            telemetry_summary = telemetry.format_status_line()
             transcript.add_assistant_turn(
                 content=result.final_text,
                 model=result.steps[-1].model_used if result.steps else "",
                 provider=result.steps[-1].provider if result.steps else "",
                 cost_usd=result.total_cost_usd,
+                telemetry_summary=telemetry_summary,
             )
 
             if acc:
@@ -658,6 +691,20 @@ def swarm_cmd(goal):
     click.echo(click.style(f"\n[swarm_phases={len(res.phases)} total_cost=${res.total_cost_usd:.4f}]", fg="bright_black"))
 
 
+@main.command(name="consensus")
+@click.argument("prompt")
+@click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="quality")
+def consensus_cmd(prompt, priority):
+    """[NEXT-GEN] Multi-model peer-review consensus synthesis."""
+    from ijachi_router.consensus import consensus_route
+
+    click.echo(click.style("🧠 Running multi-model consensus peer review...", fg="cyan"))
+    res = consensus_route(prompt=prompt, priority=priority)
+    click.echo("\n" + click.style(f"=== Consensus Output ({res.consensus_model}) ===", fg="green", bold=True))
+    click.echo(res.final_text)
+    click.echo(click.style(f"\n[models={res.model_a} & {res.model_b} cost=${res.total_cost_usd:.4f}]", fg="bright_black"))
+
+
 @main.command(name="doc")
 def doc_cmd():
     """[NEXT-GEN] Auto-generate ARCHITECTURE.md with interactive Mermaid diagrams."""
@@ -739,10 +786,11 @@ def models_list_cmd():
 
     mm = ModelManager()
     models = mm.list_models()
-    click.echo(click.style(f"\n{'Model ID':<30} {'Provider':<15} {'Speed':<10} {'In/1k($)':<10} {'Out/1k($)':<10}", fg="cyan", bold=True))
-    click.echo("-" * 80)
+    click.echo(click.style(f"\n{'Model ID':<30} {'Provider':<15} {'Speed':<10} {'Status':<10} {'In/1k($)':<10} {'Out/1k($)':<10}", fg="cyan", bold=True))
+    click.echo("-" * 90)
     for m in models:
-        click.echo(f"{m.model_id:<30} {m.provider:<15} {m.speed_tier:<10} ${m.input_per_1k:<9.4f} ${m.output_per_1k:<9.4f}")
+        status = "disabled" if "disabled" in m.tags else "enabled"
+        click.echo(f"{m.model_id:<30} {m.provider:<15} {m.speed_tier:<10} {status:<10} ${m.input_per_1k:<9.4f} ${m.output_per_1k:<9.4f}")
     click.echo()
 
 
@@ -759,6 +807,20 @@ def models_add_cmd(model_id, provider, speed, input_cost, output_cost):
     mm = ModelManager()
     msg = mm.add_model(model_id=model_id, provider=provider, speed_tier=speed, input_per_1k=input_cost, output_per_1k=output_cost)
     click.echo(click.style(f"✓ {msg}", fg="green"))
+
+
+@models_group.command(name="toggle")
+@click.argument("model_id")
+def models_toggle_cmd(model_id):
+    """Enable or disable a model in models.yaml."""
+    from ijachi_router.model_manager import ModelManager
+
+    mm = ModelManager()
+    msg = mm.toggle_model(model_id=model_id)
+    if "not found" in msg:
+        click.echo(click.style(msg, fg="yellow"))
+    else:
+        click.echo(click.style(f"✓ {msg}", fg="green"))
 
 
 @main.group(name="keys")
@@ -814,7 +876,7 @@ def keys_test_cmd():
     status = km.test_keys()
     click.echo(click.style("\nProvider Key Verification:", fg="cyan", bold=True))
     for p, ok in status.items():
-        icon = "✓ Active" if ok else "✗ Missing"
+        icon = "✓ Active" if ok else "✗ Failed"
         click.echo(f"  • {p:<15} -> {icon}")
     click.echo()
 
@@ -845,16 +907,41 @@ def serve(host, port, license_key):
 @click.option("--host", default="127.0.0.1", help="Host address to bind.")
 @click.option("--port", default=8000, type=int, help="Port to bind dashboard.")
 def dashboard(host, port):
-    """[PRO] Open the Web Telemetry Dashboard in your default browser."""
+    """Open the Web Telemetry Dashboard in your default browser."""
+    import threading
     import webbrowser
-    from ijachi_router.license import check_pro_access
-
-    if not check_pro_access("Web Telemetry Dashboard"):
-        return
+    from ijachi_router.server import start_server
 
     url = f"http://{host}:{port}/"
+    server = start_server(host=host, port=port)
+
+    # Open browser shortly after the server starts listening
+    def _open_browser():
+        import time
+        time.sleep(0.5)
+        webbrowser.open(url)
+
+    threading.Thread(target=_open_browser, daemon=True).start()
     click.echo(f"Opening Web Dashboard at {url} …")
-    webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nDashboard server stopped.")
+
+
+@main.command(name="extension-server")
+@click.option("--host", default="127.0.0.1", help="Host address to bind.")
+@click.option("--port", default=8001, type=int, help="Port to bind the IDE extension server.")
+def extension_server_cmd(host, port):
+    """[PRO] Start JSON-RPC/REST bridge server for IDE extensions."""
+    from ijachi_router.lsp import start_lsp_server
+
+    click.echo(click.style(f"🔌 Starting IDE extension server on http://{host}:{port} ...", fg="cyan"))
+    server = start_lsp_server(host=host, port=port)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nExtension server stopped.")
 
 
 @main.group()

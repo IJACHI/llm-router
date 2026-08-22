@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ijachi_router.classifier import complexity_score, predict_category
 from ijachi_router.config import ModelConfig, RouterConfig, load_config
+from ijachi_router.budget import BudgetManager
 from ijachi_router.fallback import reset_breakers, route_with_fallback
 from ijachi_router.humanizer import humanize
 from ijachi_router.metrics import log_result
@@ -168,13 +169,26 @@ class Router:
             force_model: Optional specific model_id to pin and use directly.
             **kwargs: Forwarded to the provider.
         """
-        # 0. If a specific model is forced, locate and rank it first
-        if force_model:
+        # 0. Budget enforcement: hard cap reached -> failover to free local/Ollama models
+        budget = BudgetManager()
+        is_exceeded, budget_msg = budget.check_budget_status()
+        budget_failover = is_exceeded and budget.config.auto_failover_ollama
+
+        if budget_failover:
+            ranked = [m for m in self.config.available_models() if m.provider == "local"]
+            if not ranked:
+                raise ProviderError(
+                    f"Monthly budget cap reached and no local Ollama models are available.\n{budget_msg}"
+                )
+            priority = "cost"
+            category = "simple-qa"
+        elif force_model:
             matching = [m for m in self.config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
             if matching:
                 ranked = matching
             else:
                 ranked = list(self.config.available_models())
+            category = "code"
         else:
             # 1. Classify — use _classify_as if provided, else fall back to full prompt
             classify_text = _classify_as if _classify_as else prompt
@@ -203,7 +217,6 @@ class Router:
 
         # 3. Optimize prompt for the top candidate
         top_model = ranked[0]
-        category = category if not force_model else "code"
         optimized = optimize_prompt(prompt, top_model.provider, category)
 
         # 4. Build provider instances
@@ -227,10 +240,102 @@ class Router:
         from dataclasses import replace as dc_replace
         result = dc_replace(result, text=clean_text)
 
-        # 8. Log
+        # 8. Record spend and log
+        budget.record_spend(result.cost_usd)
         log_result(result)
 
         return result
+
+    def stream(
+        self,
+        prompt: str,
+        humanize_mode: str = "light",
+        _classify_as: str | None = None,
+        priority: str | None = None,
+        force_model: str | None = None,
+        **kwargs,
+    ):
+        """Stream response chunks from the best available model.
+
+        Yields text chunks as they are produced by the provider. Post-processing
+        (humanize/security) is intentionally skipped during streaming because it
+        requires the full response.
+        """
+        # Budget enforcement: hard cap reached -> failover to free local/Ollama models
+        budget = BudgetManager()
+        is_exceeded, budget_msg = budget.check_budget_status()
+        budget_failover = is_exceeded and budget.config.auto_failover_ollama
+
+        if budget_failover:
+            ranked = [m for m in self.config.available_models() if m.provider == "local"]
+            if not ranked:
+                raise ProviderError(
+                    f"Monthly budget cap reached and no local Ollama models are available.\n{budget_msg}"
+                )
+            priority = "cost"
+            category = "simple-qa"
+        elif force_model:
+            matching = [m for m in self.config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
+            if matching:
+                ranked = matching
+            else:
+                ranked = list(self.config.available_models())
+            category = "code"
+        else:
+            classify_text = _classify_as if _classify_as else prompt
+            category, _ = predict_category(classify_text)
+            cx = complexity_score(classify_text)
+
+            effective_config = self.config
+            if priority:
+                from dataclasses import replace as dc_replace
+                effective_config = dc_replace(self.config, priority=priority)
+
+            ranked = _rank_models(effective_config, category, cx)
+            if not ranked:
+                ranked = list(self.config.available_models())
+
+        if not ranked:
+            raise ProviderError(
+                "No providers available. Configure at least one provider with:\n"
+                "  ijachi keys set <provider> <key>\n"
+                "Available providers: gemini, openai, anthropic, groq, deepseek, moonshot\n"
+                "Or run Ollama locally for a free offline option."
+            )
+
+        top_model = ranked[0]
+        optimized = optimize_prompt(prompt, top_model.provider, category)
+
+        providers = []
+        for m in ranked:
+            try:
+                providers.append(_build_provider(m))
+            except (KeyError, Exception):
+                continue
+
+        if not providers:
+            raise ProviderError("No providers could be initialized for streaming.")
+
+        # Stream from the first available provider; fallback not supported during streaming.
+        provider = providers[0]
+        collected: list[str] = []
+        try:
+            for chunk in provider._stream(optimized, **kwargs):
+                collected.append(chunk)
+                yield chunk
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"{provider.name}/{provider.model_id}: {exc}") from exc
+
+        # Estimate and record spend after streaming completes.
+        text = "".join(collected)
+        in_tok = len(prompt.split())
+        out_tok = len(text.split())
+        cost = (in_tok / 1000) * provider.pricing.get("input_per_1k", 0) + (
+            out_tok / 1000
+        ) * provider.pricing.get("output_per_1k", 0)
+        budget.record_spend(cost)
 
 
 # ---------------------------------------------------------------------------

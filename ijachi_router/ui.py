@@ -23,6 +23,7 @@ Usage
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Literal
 
 from rich.console import Console
@@ -191,6 +192,27 @@ _BANNER_ART = r"""
  ██    █████   ██   ██   ██████  ██   ██  ██
 """
 
+# Application metadata shown in the welcome card
+_APP_VERSION = "v1.0.0"
+_APP_TAGLINE = "⚡ One Prompt. Best Model. Zero Watermarks. OWASP Secured."
+
+# Quick onboarding tips
+_TIPS = [
+    "Type /help for slash commands and keybindings",
+    "Type /init to generate a CLAUDE.md context file",
+    "Use @filename for file-path autocomplete",
+    "Press Ctrl+T to toggle the live task checklist",
+    "Press Ctrl+O to open the transcript viewer",
+]
+
+# In-app release feed (mirrors README highlights)
+_RELEASE_NOTES: list[tuple[str, str]] = [
+    ("v1.0.0", "Live terminal UI: task panels, diffs, telemetry, plan mode"),
+    ("v0.9.5", "20-provider routing with real streaming & budget failover"),
+    ("v0.9.0", "Agentic workspace tools, skill system, and memory layers"),
+    ("v0.8.0", "Cost estimates, stats dashboard, and Pro REST gateway"),
+]
+
 
 def get_neon_banner() -> Panel:
     """Render the high-impact neon gradient banner for ijachi-code.
@@ -199,12 +221,12 @@ def get_neon_banner() -> Panel:
         A Rich Panel containing the ASCII banner art and subtitle.
     """
     banner_text = Text(_BANNER_ART, style="banner")
-    subtitle = Text("⚡ One Prompt. Best Model. Zero Watermarks. OWASP Secured.", style="banner.sub")
+    subtitle = Text(_APP_TAGLINE, style="banner.sub")
     combined = Text.assemble(banner_text, "\n", subtitle, justify="center")
     return Panel(
         combined,
         title="[banner.title]✨ IJACHI AGENTIC PLATFORM ✨[/banner.title]",
-        subtitle="[banner.version]v1.0.0 • 20 Providers • Skills • 100% Test Coverage[/banner.version]",
+        subtitle=f"[banner.version]{_APP_VERSION} • 20 Providers • Skills • 100% Test Coverage[/banner.version]",
         border_style="banner.border",
         padding=(1, 2),
     )
@@ -213,6 +235,84 @@ def get_neon_banner() -> Panel:
 def print_banner() -> None:
     """Print the neon banner to stdout using the active theme."""
     _console.print(get_neon_banner())
+
+
+def get_welcome_card(
+    model: str = "auto",
+    billing: str = "API Usage Billing",
+    workspace: str | None = None,
+) -> Panel:
+    """Render the branded welcome card with metadata and tips.
+
+    Args:
+        model: Active model label (e.g. 'kimi-k2.7-code:cloud').
+        billing: Billing engine label.
+        workspace: Current working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        A Rich Panel combining banner, metadata, tips, and release notes.
+    """
+    if workspace is None:
+        workspace = str(Path.cwd())
+    home = str(Path.home())
+    workspace_display = workspace.replace(home, "~")
+
+    banner = get_neon_banner()
+
+    meta_table = Table(show_header=False, box=None, padding=(0, 1))
+    meta_table.add_column(style="info", width=18)
+    meta_table.add_column(style="white")
+    meta_table.add_row("Version", _APP_VERSION)
+    meta_table.add_row("Active Model", model)
+    meta_table.add_row("Billing", billing)
+    meta_table.add_row("Workspace", workspace_display)
+
+    tips = Text.from_markup("\n".join(f"  • {tip}" for tip in _TIPS))
+
+    release_table = Table(show_header=True, box=None, padding=(0, 1))
+    release_table.add_column("Version", style="bold cyan", width=10)
+    release_table.add_column("What's New", style="white")
+    for version, note in _RELEASE_NOTES:
+        release_table.add_row(version, note)
+
+    body = Text.assemble(
+        Text("\n"),
+        Text.from_markup("[bold cyan]Session Context[/bold cyan]\n"),
+        meta_table,
+        Text("\n"),
+        Text.from_markup("[bold cyan]Tips & Getting Started[/bold cyan]\n"),
+        tips,
+        Text("\n"),
+        Text.from_markup("[bold cyan]What's New[/bold cyan]\n"),
+        release_table,
+    )
+
+    return Panel(
+        body,
+        border_style="banner.border",
+        padding=(1, 2),
+        title=f"[banner.title]✨ IJACHI AGENTIC PLATFORM ✨[/banner.title]",
+        subtitle=f"[banner.version]{_APP_VERSION}[/banner.version]",
+    )
+
+
+def print_welcome_card(
+    model: str = "auto",
+    billing: str = "API Usage Billing",
+    workspace: str | None = None,
+) -> None:
+    """Print the full welcome card to the terminal."""
+    _console.print(get_welcome_card(model=model, billing=billing, workspace=workspace))
+
+
+def print_status_line(line: str) -> None:
+    """Print a telemetry status line with subtle styling."""
+    _console.print(f"[dim]{line}[/dim]")
+
+
+def print_roll_up(line: str) -> None:
+    """Print an execution roll-up line."""
+    _console.print(f"[bold green]{line}[/bold green]")
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import os
-from ijachi_router.providers.base import Provider, ProviderError
+from ijachi_router.providers.base import Provider, ProviderError, _stream_openai_compatible
 
 
 class TogetherProvider(Provider):
@@ -30,3 +30,22 @@ class TogetherProvider(Provider):
             return text, in_tokens, out_tokens
         except Exception as err:
             raise ProviderError(f"Together AI call failed for model '{self.model_id}': {err}") from err
+
+    def _ping(self) -> None:
+        api_key = os.environ.get("TOGETHER_API_KEY")
+        if not api_key:
+            raise ProviderError("TOGETHER_API_KEY not set")
+        try:
+            import openai
+            client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
+            client.models.list()
+        except Exception as err:
+            raise ProviderError(f"Together AI connectivity check failed: {err}") from err
+
+    def _stream(self, prompt: str, **kwargs):
+        api_key = os.environ.get("TOGETHER_API_KEY")
+        if not api_key:
+            raise ProviderError("TOGETHER_API_KEY not set")
+        yield from _stream_openai_compatible(
+            api_key, self.model_id, prompt, base_url="https://api.together.xyz/v1", **kwargs
+        )

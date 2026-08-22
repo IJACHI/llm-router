@@ -10,6 +10,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ijachi_router.providers import REGISTRY
+from ijachi_router.providers.base import ProviderError
+
 _KEYS_FILE = Path.home() / ".ijachi-llmr" / "keys.env"
 
 _PROVIDER_ENV_VARS = {
@@ -19,6 +22,9 @@ _PROVIDER_ENV_VARS = {
     "google": "GEMINI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "groq": "GROQ_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "together": "TOGETHER_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
     "cerebras": "CEREBRAS_API_KEY",
     "qwen": "DASHSCOPE_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
@@ -29,6 +35,7 @@ _PROVIDER_ENV_VARS = {
     "sambanova": "SAMBANOVA_API_KEY",
     "bedrock": "AWS_ACCESS_KEY_ID",
     "azure": "AZURE_OPENAI_API_KEY",
+    "custom": "LOCAL_SERVER_URL",
     # NOTE: "local" (Ollama) is intentionally excluded — it needs no API key.
     # OLLAMA_HOST is a server binding setting, not an authentication secret.
 }
@@ -138,10 +145,30 @@ class KeyManager:
     def test_keys(self) -> dict[str, bool]:
         """Check live API connectivity for all configured provider keys."""
         self.load_keys_into_env()
-        status = {}
+        status: dict[str, bool] = {}
+
+        def _ping_provider(provider: str) -> bool:
+            if provider not in REGISTRY:
+                return False
+            try:
+                cls = REGISTRY[provider]
+                instance = cls(
+                    model_id="__ping__",
+                    pricing={"input_per_1k": 0.0, "output_per_1k": 0.0},
+                )
+                instance._ping()
+                return True
+            except ProviderError:
+                return False
+            except Exception:
+                return False
+
         for provider, env_var in _PROVIDER_ENV_VARS.items():
-            key = os.getenv(env_var)
-            if not key:
-                continue
-            status[provider] = True  # Key present and loaded
+            if os.getenv(env_var):
+                status[provider] = _ping_provider(provider)
+
+        # Ollama is keyless; test reachability separately
+        if "local" in REGISTRY:
+            status["local"] = _ping_provider("local")
+
         return status
