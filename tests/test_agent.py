@@ -61,7 +61,6 @@ def test_workspace_tools_list_and_grep(temp_workspace):
 
 def test_agentic_router_loop(monkeypatch, temp_workspace):
     """Test AgenticRouter multi-step loop with mocked model responses."""
-    tools = WorkspaceTools(root_dir=temp_workspace)
     agent = AgenticRouter(
         root_dir=temp_workspace,
         require_approval=False,
@@ -85,6 +84,15 @@ def test_agentic_router_loop(monkeypatch, temp_workspace):
     ]
 
     mock_call_idx = 0
+
+    def mock_route_stream(*args, **kwargs):
+        """Mock route_stream: yields the full text as one chunk then the GenerationResult."""
+        nonlocal mock_call_idx
+        res = responses[min(mock_call_idx, len(responses) - 1)]
+        mock_call_idx += 1
+        yield res.text
+        yield res
+
     def mock_route(*args, **kwargs):
         nonlocal mock_call_idx
         res = responses[min(mock_call_idx, len(responses) - 1)]
@@ -92,6 +100,7 @@ def test_agentic_router_loop(monkeypatch, temp_workspace):
         return res
 
     monkeypatch.setattr("ijachi_router.agent.route", mock_route)
+    monkeypatch.setattr("ijachi_router.agent.route_stream", mock_route_stream)
 
     result = agent.run("Analyze sample.py", max_steps=5)
     assert result.completed is True

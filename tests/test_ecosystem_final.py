@@ -58,8 +58,16 @@ def test_stream_route(monkeypatch):
         input_tokens=10,
         output_tokens=5,
     )
-    monkeypatch.setattr("ijachi_router.streaming.route", lambda *args, **kwargs: mock_res)
 
-    chunks = list(stream_route("Test prompt"))
-    assert len(chunks) == 3
-    assert "".join(chunks) == "Hello world test"
+    def mock_route_stream(*args, **kwargs):
+        yield "Hello "
+        yield "world "
+        yield "test"
+        yield mock_res
+
+    monkeypatch.setattr("ijachi_router.streaming.route_stream", mock_route_stream)
+
+    items = list(stream_route("Test prompt"))
+    str_chunks = [i for i in items if isinstance(i, str)]
+    assert len(str_chunks) == 3
+    assert "".join(str_chunks) == "Hello world test"

@@ -326,3 +326,155 @@ def accessible_label(role: str, content: str) -> None:
         content: The message content to print.
     """
     print(f"{role}: {content}")
+
+
+# ---------------------------------------------------------------------------
+# Telemetry & Cost Breakdown Renderers
+# ---------------------------------------------------------------------------
+
+def render_route_footer(res, humanize_mode: str = "light") -> None:
+    """Render a comprehensive telemetry breakdown footer after a single route call.
+
+    Args:
+        res: GenerationResult object containing cost, tokens, and savings.
+        humanize_mode: The active humanize mode string.
+    """
+    if is_accessible_mode():
+        saved_str = (
+            f" saved=${res.cost_saved_usd:.4f} ({res.savings_pct:.1f}% vs {res.baseline_model})"
+            if res.cost_saved_usd > 0
+            else ""
+        )
+        print(
+            f"telemetry: model={res.model} provider={res.provider} category={res.category} "
+            f"tokens={res.input_tokens}in/{res.output_tokens}out cost=${res.cost_usd:.4f}{saved_str} "
+            f"latency={res.latency_s:.2f}s ({res.tokens_per_sec:.1f}tok/s)"
+        )
+        return
+
+    # Rich formatted breakdown
+    cat_badge = get_badge(res.category)
+    tok_rate = f"{res.tokens_per_sec:.1f} tok/s" if res.tokens_per_sec > 0 else "-"
+    tokens_str = (
+        f"[bold white]{res.input_tokens}[/bold white] in / "
+        f"[bold white]{res.output_tokens}[/bold white] out "
+        f"([dim]{res.total_tokens} total[/dim])"
+    )
+    cost_str = f"[bold green]${res.cost_usd:.4f}[/bold green]"
+
+    if res.cost_saved_usd > 0:
+        savings_str = (
+            f"  📉 [bold cyan]Saved: ${res.cost_saved_usd:.4f} "
+            f"({res.savings_pct:.1f}% vs {res.baseline_model})[/bold cyan]"
+        )
+    else:
+        savings_str = ""
+
+    summary_text = (
+        f"🤖 [bold cyan]{res.model}[/bold cyan] ([dim]{res.provider}[/dim])  "
+        f"{cat_badge}  "
+        f"🔢 Tokens: {tokens_str}  "
+        f"⏱️ [dim]{res.latency_s:.2f}s ({tok_rate})[/dim]\n"
+        f"💰 Cost: {cost_str}{savings_str}"
+    )
+
+    from rich.panel import Panel
+    _console.print(Panel(
+        summary_text,
+        title="[dim]⚡ Routing & Cost Telemetry[/dim]",
+        border_style="dim bright_blue",
+        padding=(0, 1),
+    ))
+
+
+def render_agent_breakdown(result) -> None:
+    """Render a comprehensive multi-step task telemetry breakdown table.
+
+    Args:
+        result: AgentResult object.
+    """
+    if is_accessible_mode():
+        print(
+            f"\ntelemetry_summary: steps={len(result.steps)} "
+            f"in_tokens={result.total_input_tokens} out_tokens={result.total_output_tokens} "
+            f"total_cost=${result.total_cost_usd:.4f} saved=${result.total_cost_saved_usd:.4f} "
+            f"latency={result.total_latency_s:.2f}s"
+        )
+        for s in result.steps:
+            action = s.tool_name or "answer"
+            print(
+                f"  step #{s.step_number}: {action} model={s.model_used} "
+                f"tokens={s.input_tokens}/{s.output_tokens} cost=${s.cost_usd:.4f}"
+            )
+        return
+
+    _console.print()
+    try:
+        _console.print(result.get_breakdown_table())
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Real-Time Animated Status Spinner & Progress Helpers
+# ---------------------------------------------------------------------------
+
+from contextlib import contextmanager
+from typing import Any, Generator
+
+
+class _NoOpStatus:
+    """Fallback status controller for accessible or non-interactive environments."""
+    def update(self, text: str) -> None:
+        if is_accessible_mode():
+            print(f"status: {text}")
+
+
+@contextmanager
+def status_spinner(initial_message: str = "Thinking...") -> Generator[Any, None, None]:
+    """Context manager that displays an animated Rich spinner during long operations.
+
+    In accessibility mode, outputs plain text lines instead of ANSI animation.
+
+    Args:
+        initial_message: The initial status text to display next to the spinner.
+
+    Yields:
+        A status object that can be updated with `status.update("New message...")`.
+    """
+    if is_accessible_mode():
+        print(f"status: {initial_message}")
+        yield _NoOpStatus()
+        return
+
+    try:
+        with _console.status(f"[bold cyan]{initial_message}[/bold cyan]", spinner="dots") as status:
+            yield status
+    except Exception:
+        yield _NoOpStatus()
+
+
+def live_status_message(message: str, style: str = "dim cyan") -> None:
+    """Print an immediate live status notice."""
+    if is_accessible_mode():
+        print(f"status: {message}")
+    else:
+        _console.print(f"[{style}]⚡ {message}[/{style}]")
+
+
+def get_permission_mode_label(mode: str) -> str:
+    """Return the display label for a permission/autonomy mode.
+
+    Args:
+        mode: One of 'manual', 'accept-edits', 'plan', 'auto'.
+
+    Returns:
+        Unicode-decorated label string.
+    """
+    _labels: dict[str, str] = {
+        "manual":       "⏸ manual",
+        "accept-edits": "✏ accept-edits",
+        "plan":         "📋 plan",
+        "auto":         "⏵⏵ auto",
+    }
+    return _labels.get(mode, mode)

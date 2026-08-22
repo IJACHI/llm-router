@@ -13,12 +13,15 @@ Flow
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
+from typing import Iterator
 
 from ijachi_router.classifier import complexity_score, predict_category
 from ijachi_router.config import ModelConfig, RouterConfig, load_config
 from ijachi_router.fallback import reset_breakers, route_with_fallback
 from ijachi_router.humanizer import humanize
+from ijachi_router.live_events import emit
 from ijachi_router.metrics import log_result
 from ijachi_router.optimizer import optimize_prompt
 from ijachi_router.providers import REGISTRY
@@ -136,6 +139,78 @@ def _build_provider(model: ModelConfig) -> Provider:
 
 
 # ---------------------------------------------------------------------------
+# Internal shared pipeline setup
+# ---------------------------------------------------------------------------
+
+def _prepare_pipeline(
+    prompt: str,
+    config: RouterConfig,
+    _classify_as: str | None = None,
+    priority: str | None = None,
+    force_model: str | None = None,
+) -> tuple[list[Provider], str, str, float]:
+    """Classify, rank, and build providers. Returns (providers, optimized_prompt, category, complexity)."""
+    category = "code"
+    cx = 0.5
+
+    if force_model:
+        matching = [m for m in config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
+        ranked = matching if matching else list(config.available_models())
+    else:
+        classify_text = _classify_as if _classify_as else prompt
+        category, confidence = predict_category(classify_text)
+        cx = complexity_score(classify_text)
+
+        emit(
+            "classify",
+            f"Classified → [bold]{category}[/bold] · complexity {cx:.2f} · confidence {confidence:.2f}",
+            category=category,
+            complexity=cx,
+            confidence=confidence,
+        )
+
+        effective_config = config
+        if priority:
+            from dataclasses import replace as dc_replace
+            effective_config = dc_replace(config, priority=priority)
+
+        ranked = _rank_models(effective_config, category, cx)
+        if not ranked:
+            ranked = list(config.available_models())
+
+        if ranked:
+            top3 = " · ".join(
+                f"{m.provider}/{m.model_id}" for m in ranked[:3]
+            )
+            emit(
+                "rank",
+                f"Ranked {len(ranked)} model(s) → {top3}{'...' if len(ranked) > 3 else ''}",
+                count=len(ranked),
+            )
+
+    if not ranked:
+        raise ProviderError(
+            "No providers available. Configure at least one provider with:\n"
+            "  ijachi keys set <provider> <key>\n"
+            "Available providers: gemini, openai, anthropic, groq, deepseek, moonshot\n"
+            "Or run Ollama locally for a free offline option."
+        )
+
+    top_model = ranked[0]
+    optimized = optimize_prompt(prompt, top_model.provider, category)
+
+    providers = []
+    for m in ranked:
+        try:
+            providers.append(_build_provider(m))
+        except (KeyError, Exception):
+            continue
+
+    emit("query", f"Querying [bold]{top_model.provider}/{top_model.model_id}[/bold]...", model=f"{top_model.provider}/{top_model.model_id}")
+    return providers, optimized, category, cx
+
+
+# ---------------------------------------------------------------------------
 # Router class
 # ---------------------------------------------------------------------------
 
@@ -168,69 +243,159 @@ class Router:
             force_model: Optional specific model_id to pin and use directly.
             **kwargs: Forwarded to the provider.
         """
-        # 0. If a specific model is forced, locate and rank it first
-        if force_model:
-            matching = [m for m in self.config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
-            if matching:
-                ranked = matching
-            else:
-                ranked = list(self.config.available_models())
-        else:
-            # 1. Classify — use _classify_as if provided, else fall back to full prompt
-            classify_text = _classify_as if _classify_as else prompt
-            category, confidence = predict_category(classify_text)
-            cx = complexity_score(classify_text)
+        providers, optimized, category, cx = _prepare_pipeline(
+            prompt, self.config, _classify_as, priority, force_model
+        )
 
-            # 2. Rank candidates with optional priority override
-            effective_config = self.config
-            if priority:
-                from dataclasses import replace as dc_replace
-                effective_config = dc_replace(self.config, priority=priority)
+        # Route with fallback (uses speculative racing when priority=speed)
+        effective_priority = priority or self.config.priority
+        is_speed = (effective_priority == "speed")
+        result = route_with_fallback(providers, optimized, speculative=is_speed, **kwargs)
 
-            ranked = _rank_models(effective_config, category, cx)
-
-            if not ranked:
-                # Fallback: try all available models regardless of category
-                ranked = list(self.config.available_models())
-
-        if not ranked:
-            raise ProviderError(
-                "No providers available. Configure at least one provider with:\n"
-                "  ijachi keys set <provider> <key>\n"
-                "Available providers: gemini, openai, anthropic, groq, deepseek, moonshot\n"
-                "Or run Ollama locally for a free offline option."
-            )
-
-        # 3. Optimize prompt for the top candidate
-        top_model = ranked[0]
-        category = category if not force_model else "code"
-        optimized = optimize_prompt(prompt, top_model.provider, category)
-
-        # 4. Build provider instances
-        providers = []
-        for m in ranked:
-            try:
-                providers.append(_build_provider(m))
-            except (KeyError, Exception):
-                continue
-
-        # 5. Route with fallback
-        result = route_with_fallback(providers, optimized, **kwargs)
-
-        # 6. Humanize: strip AI watermarks & artifacts using the requested mode
+        # Humanize and security scan
+        emit("humanize", "Stripping AI watermarks & formatting output...")
         clean_text = humanize(result.text, mode=humanize_mode)
-
-        # 7. Security scan & auto-remediate any vulnerabilities in generated code
+        emit("security", "Running security scan...")
         clean_text, _ = scan_and_fix(clean_text)
 
-        # Rebuild result with cleaned text (immutable dataclass - recreate)
-        from dataclasses import replace as dc_replace
-        result = dc_replace(result, text=clean_text)
+        # Compute telemetry
+        baseline_cost_usd = (result.input_tokens / 1000.0) * 0.005 + (result.output_tokens / 1000.0) * 0.015
+        cost_saved_usd = max(0.0, baseline_cost_usd - result.cost_usd)
+        savings_pct = (cost_saved_usd / baseline_cost_usd * 100.0) if baseline_cost_usd > 0 else 0.0
+        tok_sec = (result.input_tokens + result.output_tokens) / result.latency_s if result.latency_s > 0 else 0.0
 
-        # 8. Log
+        from dataclasses import replace as dc_replace
+        result = dc_replace(
+            result,
+            text=clean_text,
+            category=category,
+            complexity=cx,
+            baseline_model="gpt-4o",
+            baseline_cost_usd=baseline_cost_usd,
+            cost_saved_usd=cost_saved_usd,
+            savings_pct=savings_pct,
+            tokens_per_sec=tok_sec,
+        )
+
+        savings_str = f" · saved ${cost_saved_usd:.4f} ({savings_pct:.0f}% vs gpt-4o)" if cost_saved_usd > 0 else ""
+        emit(
+            "done",
+            f"{result.total_tokens} tokens · ${result.cost_usd:.4f}{savings_str} · {result.latency_s:.2f}s",
+            model=result.model,
+            cost_usd=result.cost_usd,
+            total_tokens=result.total_tokens,
+        )
+
+        log_result(result)
+        return result
+
+    def route_stream(
+        self,
+        prompt: str,
+        humanize_mode: str = "light",
+        _classify_as: str | None = None,
+        priority: str | None = None,
+        force_model: str | None = None,
+        **kwargs,
+    ) -> Iterator[str | GenerationResult]:
+        """Stream *prompt* response token-by-token, emitting pipeline events live.
+
+        Yields text chunks (``str``) from the provider as they arrive, then
+        yields a final :class:`GenerationResult` as the very last item so the
+        caller can display the telemetry card.
+
+        Args:
+            prompt: The raw user prompt.
+            humanize_mode: Post-processing humanize mode.
+            _classify_as: Optional classification-only text.
+            priority: Routing priority override.
+            force_model: Pin a specific model.
+            **kwargs: Forwarded to the provider streaming call.
+        """
+        providers, optimized, category, cx = _prepare_pipeline(
+            prompt, self.config, _classify_as, priority, force_model
+        )
+
+        if not providers:
+            raise ProviderError("No providers could be constructed.")
+
+        # Stream from the top provider; fall back to generate() if streaming fails
+        primary = providers[0]
+        start = time.monotonic()
+        full_text = ""
+
+        try:
+            for chunk in primary.stream(optimized, **kwargs):
+                full_text += chunk
+                yield chunk
+        except Exception:
+            # Streaming failed — fall back to non-streaming generate
+            try:
+                res = primary.generate(optimized, **kwargs)
+                full_text = res.text
+                yield full_text
+            except Exception as e:
+                # Try remaining fallback providers
+                for fallback in providers[1:]:
+                    try:
+                        res = fallback.generate(optimized, **kwargs)
+                        full_text = res.text
+                        yield full_text
+                        break
+                    except Exception:
+                        continue
+                else:
+                    raise ProviderError(f"All providers failed: {e}") from e
+
+        latency = time.monotonic() - start
+
+        # Post-process
+        emit("humanize", "Stripping AI watermarks...")
+        clean_text = humanize(full_text, mode=humanize_mode)
+        emit("security", "Running security scan...")
+        clean_text, _ = scan_and_fix(clean_text)
+
+        # Estimate tokens (approximate from char count if streaming doesn't expose usage)
+        approx_out = max(1, len(clean_text) // 4)
+        approx_in = max(1, len(optimized) // 4)
+
+        pricing = primary.pricing
+        cost_usd = (approx_in / 1000) * pricing.get("input_per_1k", 0) + (approx_out / 1000) * pricing.get("output_per_1k", 0)
+        baseline_cost_usd = (approx_in / 1000.0) * 0.005 + (approx_out / 1000.0) * 0.015
+        cost_saved_usd = max(0.0, baseline_cost_usd - cost_usd)
+        savings_pct = (cost_saved_usd / baseline_cost_usd * 100.0) if baseline_cost_usd > 0 else 0.0
+        tok_sec = (approx_in + approx_out) / latency if latency > 0 else 0.0
+
+        result = GenerationResult(
+            text=clean_text,
+            provider=primary.name,
+            model=primary.model_id,
+            input_tokens=approx_in,
+            output_tokens=approx_out,
+            cost_usd=round(cost_usd, 6),
+            latency_s=round(latency, 3),
+            category=category,
+            complexity=cx,
+            baseline_model="gpt-4o",
+            baseline_cost_usd=round(baseline_cost_usd, 6),
+            cost_saved_usd=round(cost_saved_usd, 6),
+            savings_pct=round(savings_pct, 2),
+            tokens_per_sec=round(tok_sec, 1),
+        )
+
+        savings_str = f" · saved ${cost_saved_usd:.4f} ({savings_pct:.0f}% vs gpt-4o)" if cost_saved_usd > 0 else ""
+        emit(
+            "done",
+            f"~{result.total_tokens} tokens · ${result.cost_usd:.4f}{savings_str} · {latency:.2f}s",
+            model=result.model,
+            cost_usd=result.cost_usd,
+            total_tokens=result.total_tokens,
+        )
+
         log_result(result)
 
-        return result
+        # Final yield: the GenerationResult for the telemetry card
+        yield result
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +412,25 @@ def route(
 ) -> GenerationResult:
     """Convenience function: ``Router().route(prompt, ...)``."""
     return Router().route(
+        prompt,
+        humanize_mode=humanize_mode,
+        _classify_as=_classify_as,
+        priority=priority,
+        force_model=force_model,
+        **kwargs,
+    )
+
+
+def route_stream(
+    prompt: str,
+    humanize_mode: str = "light",
+    _classify_as: str | None = None,
+    priority: str | None = None,
+    force_model: str | None = None,
+    **kwargs,
+) -> Iterator[str | GenerationResult]:
+    """Convenience function: ``Router().route_stream(prompt, ...)``."""
+    yield from Router().route_stream(
         prompt,
         humanize_mode=humanize_mode,
         _classify_as=_classify_as,

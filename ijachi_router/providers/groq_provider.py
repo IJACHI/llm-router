@@ -1,9 +1,20 @@
 import os
+from typing import Iterator
+
 from ijachi_router.providers.base import Provider, ProviderError
 
 
 class GroqProvider(Provider):
     name = "groq"
+
+    def _get_client(self, api_key: str):
+        try:
+            import openai
+        except ImportError as e:
+            raise ProviderError(
+                "openai package not installed (required for Groq API calls). Run: pip install openai"
+            ) from e
+        return openai.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 
     def _call(self, prompt: str, **kwargs) -> tuple[str, int, int]:
         api_key = os.environ.get("GROQ_API_KEY")
@@ -11,14 +22,7 @@ class GroqProvider(Provider):
             raise ProviderError("GROQ_API_KEY not set")
 
         try:
-            import openai
-        except ImportError as e:
-            raise ProviderError(
-                "openai package not installed (required for Groq API calls). Run: pip install openai"
-            ) from e
-
-        try:
-            client = openai.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+            client = self._get_client(api_key)
             resp = client.chat.completions.create(
                 model=self.model_id,
                 messages=[{"role": "user", "content": prompt}],
@@ -30,3 +34,24 @@ class GroqProvider(Provider):
             return text, in_tokens, out_tokens
         except Exception as err:
             raise ProviderError(f"Groq API call failed for model '{self.model_id}': {err}") from err
+
+    def _stream(self, prompt: str, **kwargs) -> Iterator[str]:
+        """Yield token chunks in real time from the Groq streaming API (OpenAI-compatible)."""
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ProviderError("GROQ_API_KEY not set")
+
+        try:
+            client = self._get_client(api_key)
+            with client.chat.completions.create(
+                model=self.model_id,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=kwargs.get("max_tokens", 1024),
+                stream=True,
+            ) as stream:
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content if chunk.choices else None
+                    if delta:
+                        yield delta
+        except Exception as err:
+            raise ProviderError(f"Groq streaming failed for model '{self.model_id}': {err}") from err

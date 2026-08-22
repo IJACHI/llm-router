@@ -27,9 +27,11 @@ from typing import Any
 from rich.console import Console
 from rich.prompt import Confirm
 
-from ijachi_router.core import route
+from ijachi_router.core import route, route_stream
 from ijachi_router.formatter import CodeFormatter
+from ijachi_router.live_events import DONE_SENTINEL, pipeline_event_context
 from ijachi_router.security import scan_and_fix, format_security_summary, scan
+from ijachi_router.ui import render_route_footer, render_agent_breakdown
 from ijachi_router.validator import validate
 
 console = Console()
@@ -650,17 +652,69 @@ class AgenticRouter:
             else:
                 console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
 
-            # Route: classify only the *task* text for model selection,
-            # but send the full conversation context as the actual prompt.
-            res = route(
-                prompt=current_prompt,
-                priority=self.priority,
-                force_model=self.force_model,
-                _classify_as=task,
-            )
-            total_cost += res.cost_usd
+            # Stream the LLM response, printing events and text chunks as they arrive
+            res = None
+            response_text = ""
 
-            response_text = res.text.strip()
+            with pipeline_event_context() as event_q:
+                import threading
+
+                def _print_events():
+                    """Background thread: drain events and print them live."""
+                    while True:
+                        item = event_q.get()
+                        if item is DONE_SENTINEL:
+                            break
+                        if not self.accessible:
+                            console.print(item.render())
+                        else:
+                            print(f"status: {item.message}")
+
+                event_thread = threading.Thread(target=_print_events, daemon=True)
+                event_thread.start()
+
+                try:
+                    if not self.accessible:
+                        console.print("[bold green]ijachi:[/bold green] ", end="")
+
+                    for chunk in route_stream(
+                        prompt=current_prompt,
+                        priority=self.priority,
+                        force_model=self.force_model,
+                        _classify_as=task,
+                    ):
+                        if isinstance(chunk, str):
+                            response_text += chunk
+                            if not self.accessible:
+                                print(chunk, end="", flush=True)
+                            # else accumulate for accessible summary
+                        else:
+                            # Final GenerationResult
+                            res = chunk
+
+                    if not self.accessible:
+                        print()  # newline after streamed text
+
+                finally:
+                    event_q.put(DONE_SENTINEL)
+                    event_thread.join(timeout=2)
+
+            if res is None:
+                # Fallback: res was never yielded (shouldn't happen)
+                res = route(
+                    prompt=current_prompt,
+                    priority=self.priority,
+                    force_model=self.force_model,
+                    _classify_as=task,
+                )
+                response_text = res.text.strip()
+
+            # Show per-step cost/model/savings telemetry card
+            if not self.accessible:
+                render_route_footer(res)
+
+            total_cost += res.cost_usd
+            response_text = response_text.strip()
 
             # Parse JSON tool call from LLM response
             json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
@@ -678,12 +732,16 @@ class AgenticRouter:
                 final_text = parsed.get("final_answer", response_text) if parsed else response_text
                 # Notify on completion
                 _notify("ijachi-code", "Task complete ✓")
-                return AgentResult(
+                agent_result = AgentResult(
                     final_text=final_text,
                     steps=steps,
                     total_cost_usd=total_cost,
                     completed=True,
                 )
+                # Show final multi-step breakdown table
+                if not self.accessible:
+                    render_agent_breakdown(agent_result)
+                return agent_result
 
             thought = parsed.get("thought", "")
             tool_name = parsed.get("tool")
@@ -693,8 +751,20 @@ class AgenticRouter:
                 print(f"ijachi: {thought}")
                 print(f"tool: {tool_name}({list(args.keys())})")
             else:
-                console.print(f"[dim]Thought: {thought}[/dim]")
-                console.print(f"[bold yellow]Tool Call: {tool_name}({args})[/bold yellow]")
+                if thought:
+                    console.print(f"[dim]Thought: {thought}[/dim]")
+                # Produce a clean summary line e.g. "write_file(path='foo.py', 47 lines)"
+                arg_parts = []
+                for k, v in (args or {}).items():
+                    if isinstance(v, str) and len(v) > 60:
+                        lines = v.count("\n") + 1
+                        arg_parts.append(f"{k}=... ({lines} lines)")
+                    elif isinstance(v, str):
+                        arg_parts.append(f"{k}={v!r}")
+                    else:
+                        arg_parts.append(f"{k}={v!r}")
+                tool_display = f"🛠  {tool_name}({', '.join(arg_parts)})"
+                console.print(f"[bold yellow]{tool_display}[/bold yellow]")
 
             tool_output = ""
             if tool_name == "read_file":

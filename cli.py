@@ -440,6 +440,7 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
             # Record user turn in transcript
             transcript.add_user_turn(stripped)
 
+            # agent.run() internally streams output + shows live events + renders telemetry card
             result = agent.run(stripped)
             session_cost += result.total_cost_usd
 
@@ -454,10 +455,11 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
                 cost_usd=result.total_cost_usd,
             )
 
+            # Note: the response text was already streamed live to the terminal
+            # by agent.run(). We only need to print it for accessible/non-streaming mode.
             if acc:
                 print(f"ijachi: {result.final_text}")
-            else:
-                click.echo("\n" + result.final_text + "\n")
+            # (streaming non-accessible output already printed during run())
 
         except ProviderError as exc:
             if acc:

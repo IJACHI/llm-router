@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Iterator
 
 
 @dataclass
@@ -18,6 +19,17 @@ class GenerationResult:
     cost_usd: float
     latency_s: float
     raw_error: str | None = None
+    category: str = "general"
+    complexity: float = 0.5
+    cost_saved_usd: float = 0.0
+    savings_pct: float = 0.0
+    tokens_per_sec: float = 0.0
+    baseline_model: str = "gpt-4o"
+    baseline_cost_usd: float = 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
 
 
 class ProviderError(Exception):
@@ -35,6 +47,16 @@ class Provider(ABC):
     def _call(self, prompt: str, **kwargs) -> tuple[str, int, int]:
         """Return (text, input_tokens, output_tokens). Raise ProviderError on failure."""
         raise NotImplementedError
+
+    def _stream(self, prompt: str, **kwargs) -> Iterator[str]:
+        """Yield text chunks as they arrive from the provider.
+
+        Providers with native streaming support should override this to yield
+        real token chunks. The default implementation calls ``_call`` and yields
+        the complete text as a single chunk (graceful degradation).
+        """
+        text, _, _ = self._call(prompt, **kwargs)
+        yield text
 
     def generate(self, prompt: str, **kwargs) -> GenerationResult:
         start = time.monotonic()
@@ -55,3 +77,11 @@ class Provider(ABC):
             cost_usd=round(cost, 6),
             latency_s=round(latency, 3),
         )
+
+    def stream(self, prompt: str, **kwargs) -> Iterator[str]:
+        """Public streaming interface — yields text chunks in real time.
+
+        Uses native provider streaming when ``_stream`` is overridden; falls back
+        to single-chunk yield if the provider does not support streaming.
+        """
+        yield from self._stream(prompt, **kwargs)
