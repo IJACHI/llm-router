@@ -156,6 +156,7 @@ class Router:
         _classify_as: str | None = None,
         priority: str | None = None,
         force_model: str | None = None,
+        use_cache: bool = True,
         **kwargs,
     ) -> GenerationResult:
         """Route *prompt* to the best available model and return the result.
@@ -166,8 +167,18 @@ class Router:
             _classify_as: Optional short text used *only* for classification/routing.
             priority: Optional override for routing priority (cost, speed, quality, balanced).
             force_model: Optional specific model_id to pin and use directly.
+            use_cache: If True, check sub-millisecond response cache.
             **kwargs: Forwarded to the provider.
         """
+        # Fast path: check sub-millisecond response cache
+        effective_priority = priority or self.config.priority
+        if use_cache:
+            from ijachi_router.response_cache import ResponseCache
+            cached_res = ResponseCache().get(prompt, model_id=force_model, priority=effective_priority)
+            if cached_res is not None:
+                log_result(cached_res)
+                return cached_res
+
         # 0. If a specific model is forced, locate and rank it first
         if force_model:
             matching = [m for m in self.config.models if m.model_id == force_model or force_model.lower() in m.model_id.lower()]
@@ -220,8 +231,9 @@ class Router:
             # Update status with target model
             spinner.update(f"Querying {top_model.provider}/{top_model.model_id}...")
 
-            # 5. Route with fallback
-            result = route_with_fallback(providers, optimized, **kwargs)
+            # 5. Route with fallback (using speculative parallel racing on speed priority)
+            is_speed = (effective_priority == "speed")
+            result = route_with_fallback(providers, optimized, speculative=is_speed, **kwargs)
 
             spinner.update("Auditing security & formatting output...")
             # 6. Humanize: strip AI watermarks & artifacts using the requested mode
@@ -251,7 +263,15 @@ class Router:
             tokens_per_sec=tok_sec,
         )
 
-        # 9. Log
+        # 9. Store in response cache for instant future hits
+        if use_cache:
+            try:
+                from ijachi_router.response_cache import ResponseCache
+                ResponseCache().set(prompt, result, model_id=force_model, priority=effective_priority)
+            except Exception:
+                pass
+
+        # 10. Log metrics
         log_result(result)
 
         return result

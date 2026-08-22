@@ -19,7 +19,8 @@ class OpenAIProvider(Provider):
             raise ProviderError("OPENAI_API_KEY not set")
 
         try:
-            client = openai.OpenAI(api_key=api_key)
+            from ijachi_router.providers.client_pool import get_cached_openai_client
+            client = get_cached_openai_client(api_key=api_key)
             resp = client.chat.completions.create(
                 model=self.model_id,
                 messages=[{"role": "user", "content": prompt}],

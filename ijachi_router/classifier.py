@@ -146,10 +146,14 @@ def _get_model() -> object | None:
     return _model
 
 
+import functools
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
+@functools.lru_cache(maxsize=4096)
 def predict_category(prompt: str) -> tuple[str, float]:
     """Return (category, confidence) for *prompt*.
 
@@ -168,6 +172,7 @@ def predict_category(prompt: str) -> tuple[str, float]:
     return _keyword_classify(prompt)
 
 
+@functools.lru_cache(maxsize=4096)
 def complexity_score(prompt: str) -> float:
     """Return a rough complexity score in [0, 1].
 

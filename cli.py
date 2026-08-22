@@ -430,6 +430,21 @@ def chat_cmd(priority, model, full_auto, style, accessibility, theme, vim):
                     from ijachi_router.prompt_engine import _HELP_TEXT
                     print(_HELP_TEXT)
 
+                elif cmd in ("cache", "caching"):
+                    from ijachi_router.response_cache import ResponseCache
+                    rc = ResponseCache()
+                    if arg.lower() in ("clear", "reset", "flush"):
+                        count = rc.clear()
+                        click.echo(click.style(f"✓ Cleared {count} cached response(s).", fg="green"))
+                    elif arg.lower() in ("disable", "off"):
+                        rc.enabled = False
+                        click.echo(click.style("✓ Response cache disabled.", fg="yellow"))
+                    elif arg.lower() in ("enable", "on"):
+                        rc.enabled = True
+                        click.echo(click.style("✓ Response cache enabled.", fg="green"))
+                    else:
+                        rc.print_stats_table()
+
                 elif cmd in ("undo", "rewind"):
                     ok, msg = agent.undo()
                     color = "green" if ok else "yellow"

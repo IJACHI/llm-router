@@ -17,7 +17,8 @@ class OpenRouterProvider(Provider):
                 "openai package not installed (required for OpenRouter API calls). Run: pip install openai"
             ) from e
 
-        client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        from ijachi_router.providers.client_pool import get_cached_openai_client
+        client = get_cached_openai_client(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         resp = client.chat.completions.create(
             model=self.model_id,
             messages=[{"role": "user", "content": prompt}],

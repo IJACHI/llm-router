@@ -286,7 +286,7 @@ class PromptEngine:
     #: Built-in slash commands offered in the '/' launcher
     BUILTIN_COMMANDS: list[str] = [
         "model", "priority", "mode", "theme", "config", "tasks", "skills", "help",
-        "memory", "stats", "undo", "rewind", "checkpoints", "revert", "exit", "quit",
+        "memory", "stats", "cache", "undo", "rewind", "checkpoints", "revert", "exit", "quit",
     ]
 
     def __init__(

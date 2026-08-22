@@ -18,7 +18,8 @@ class GroqProvider(Provider):
             ) from e
 
         try:
-            client = openai.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+            from ijachi_router.providers.client_pool import get_cached_openai_client
+            client = get_cached_openai_client(api_key=api_key, base_url="https://api.groq.com/openai/v1")
             resp = client.chat.completions.create(
                 model=self.model_id,
                 messages=[{"role": "user", "content": prompt}],

@@ -18,7 +18,8 @@ class AnthropicProvider(Provider):
         if not api_key:
             raise ProviderError("ANTHROPIC_API_KEY not set")
 
-        client = anthropic.Anthropic(api_key=api_key)
+        from ijachi_router.providers.client_pool import get_cached_anthropic_client
+        client = get_cached_anthropic_client(api_key=api_key)
         resp = client.messages.create(
             model=self.model_id,
             max_tokens=kwargs.get("max_tokens", 1024),
