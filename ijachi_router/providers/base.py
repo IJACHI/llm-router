@@ -18,6 +18,17 @@ class GenerationResult:
     cost_usd: float
     latency_s: float
     raw_error: str | None = None
+    category: str = "general"
+    complexity: float = 0.5
+    cost_saved_usd: float = 0.0
+    savings_pct: float = 0.0
+    tokens_per_sec: float = 0.0
+    baseline_model: str = "gpt-4o"
+    baseline_cost_usd: float = 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
 
 
 class ProviderError(Exception):

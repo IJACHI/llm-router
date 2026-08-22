@@ -326,3 +326,70 @@ def accessible_label(role: str, content: str) -> None:
         content: The message content to print.
     """
     print(f"{role}: {content}")
+
+
+# ---------------------------------------------------------------------------
+# Telemetry & Cost Breakdown Renderers
+# ---------------------------------------------------------------------------
+
+def render_route_footer(res, humanize_mode: str = "light") -> None:
+    """Render a comprehensive telemetry breakdown footer after a single route call.
+
+    Args:
+        res: GenerationResult object containing cost, tokens, and savings.
+        humanize_mode: The active humanize mode string.
+    """
+    if is_accessible_mode():
+        saved_str = f" saved=${res.cost_saved_usd:.4f} ({res.savings_pct:.1f}% vs {res.baseline_model})" if res.cost_saved_usd > 0 else ""
+        print(
+            f"telemetry: model={res.model} provider={res.provider} category={res.category} "
+            f"tokens={res.input_tokens}in/{res.output_tokens}out cost=${res.cost_usd:.4f}{saved_str} "
+            f"latency={res.latency_s:.2f}s ({res.tokens_per_sec:.1f}tok/s)"
+        )
+        return
+
+    # Rich formatted breakdown
+    cat_badge = get_badge(res.category)
+    tok_rate = f"{res.tokens_per_sec:.1f} tok/s" if res.tokens_per_sec > 0 else "-"
+    tokens_str = f"[bold white]{res.input_tokens}[/bold white] in / [bold white]{res.output_tokens}[/bold white] out ([dim]{res.total_tokens} total[/dim])"
+    cost_str = f"[bold green]${res.cost_usd:.4f}[/bold green]"
+    
+    if res.cost_saved_usd > 0:
+        savings_str = f"  📉 [bold cyan]Saved: ${res.cost_saved_usd:.4f} ({res.savings_pct:.1f}% vs {res.baseline_model})[/bold cyan]"
+    else:
+        savings_str = ""
+
+    from rich.panel import Panel
+    from rich.columns import Columns
+    
+    summary_text = (
+        f"🤖 [bold cyan]{res.model}[/bold cyan] ([dim]{res.provider}[/dim])  "
+        f"{cat_badge}  "
+        f"🔢 Tokens: {tokens_str}  "
+        f"⏱️ [dim]{res.latency_s:.2f}s ({tok_rate})[/dim]\n"
+        f"💰 Cost: {cost_str}{savings_str}"
+    )
+
+    _console.print(Panel(
+        summary_text,
+        title="[dim]⚡ Routing & Cost Telemetry[/dim]",
+        border_style="dim bright_blue",
+        padding=(0, 1),
+    ))
+
+
+def render_agent_breakdown(result) -> None:
+    """Render a comprehensive multi-step task telemetry breakdown.
+
+    Args:
+        result: AgentResult object.
+    """
+    if is_accessible_mode():
+        print(f"\ntelemetry_summary: steps={len(result.steps)} in_tokens={result.total_input_tokens} out_tokens={result.total_output_tokens} total_cost=${result.total_cost_usd:.4f} saved=${result.total_cost_saved_usd:.4f} latency={result.total_latency_s:.2f}s")
+        for s in result.steps:
+            action = s.tool_name or "answer"
+            print(f"  step #{s.step_number}: {action} model={s.model_used} tokens={s.input_tokens}/{s.output_tokens} cost=${s.cost_usd:.4f}")
+        return
+
+    _console.print()
+    _console.print(result.get_breakdown_table())

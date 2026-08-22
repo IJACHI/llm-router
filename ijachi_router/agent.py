@@ -508,6 +508,10 @@ class AgentStep:
     model_used: str
     provider: str
     cost_usd: float
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_saved_usd: float = 0.0
+    latency_s: float = 0.0
 
 
 @dataclass
@@ -515,7 +519,61 @@ class AgentResult:
     final_text: str
     steps: list[AgentStep] = field(default_factory=list)
     total_cost_usd: float = 0.0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_saved_usd: float = 0.0
+    total_latency_s: float = 0.0
+    category: str = "code"
     completed: bool = True
+
+    @property
+    def total_tokens(self) -> int:
+        return self.total_input_tokens + self.total_output_tokens
+
+    @property
+    def savings_pct(self) -> float:
+        baseline = self.total_cost_usd + self.total_cost_saved_usd
+        return (self.total_cost_saved_usd / baseline * 100.0) if baseline > 0 else 0.0
+
+    def get_breakdown_table(self):
+        """Render a Rich Table with full step-by-step and aggregate telemetry."""
+        from rich.table import Table
+        from rich import box
+
+        table = Table(
+            title=f"📊 Task Execution & Cost Telemetry Breakdown ({len(self.steps)} step{'s' if len(self.steps) != 1 else ''})",
+            box=box.ROUNDED,
+            header_style="bold cyan",
+            show_footer=True,
+        )
+
+        table.add_column("Step", style="dim", width=6, footer="Total")
+        table.add_column("Action / Tool", style="yellow", width=18, footer=f"{len(self.steps)} calls")
+        table.add_column("Model & Provider", style="cyan", width=26, footer="-")
+        table.add_column("Tokens (In / Out)", justify="right", width=16, footer=f"{self.total_input_tokens} / {self.total_output_tokens}")
+        table.add_column("Cost", justify="right", style="green", width=11, footer=f"${self.total_cost_usd:.4f}")
+        table.add_column("Saved vs GPT-4o", justify="right", style="bold green", width=18, footer=f"${self.total_cost_saved_usd:.4f} ({self.savings_pct:.1f}%)")
+        table.add_column("Latency", justify="right", style="dim", width=9, footer=f"{self.total_latency_s:.2f}s")
+
+        for s in self.steps:
+            tool_str = f"⚙ {s.tool_name}" if s.tool_name else "💭 Direct Answer"
+            model_str = f"{s.model_used} ({s.provider})"
+            tokens_str = f"{s.input_tokens} / {s.output_tokens}"
+            cost_str = f"${s.cost_usd:.4f}"
+            saved_str = f"${s.cost_saved_usd:.4f}"
+            lat_str = f"{s.latency_s:.2f}s"
+
+            table.add_row(
+                f"#{s.step_number}",
+                tool_str,
+                model_str,
+                tokens_str,
+                cost_str,
+                saved_str,
+                lat_str,
+            )
+
+        return table
 
 
 _STYLE_INSTRUCTION = """
@@ -676,12 +734,39 @@ class AgenticRouter:
 
             if not parsed or "final_answer" in parsed:
                 final_text = parsed.get("final_answer", response_text) if parsed else response_text
+                # Record final step if no tool was called
+                if not steps or steps[-1].thought != thought:
+                    steps.append(AgentStep(
+                        step_number=step_idx,
+                        thought=thought or "Direct Answer",
+                        tool_name=None,
+                        tool_args={},
+                        tool_output="",
+                        model_used=res.model,
+                        provider=res.provider,
+                        cost_usd=res.cost_usd,
+                        input_tokens=res.input_tokens,
+                        output_tokens=res.output_tokens,
+                        cost_saved_usd=res.cost_saved_usd,
+                        latency_s=res.latency_s,
+                    ))
+
+                total_in = sum(s.input_tokens for s in steps)
+                total_out = sum(s.output_tokens for s in steps)
+                total_saved = sum(s.cost_saved_usd for s in steps)
+                total_lat = sum(s.latency_s for s in steps)
+
                 # Notify on completion
                 _notify("ijachi-code", "Task complete ✓")
                 return AgentResult(
                     final_text=final_text,
                     steps=steps,
                     total_cost_usd=total_cost,
+                    total_input_tokens=total_in,
+                    total_output_tokens=total_out,
+                    total_cost_saved_usd=total_saved,
+                    total_latency_s=total_lat,
+                    category=res.category,
                     completed=True,
                 )
 
@@ -746,15 +831,28 @@ class AgenticRouter:
                 model_used=res.model,
                 provider=res.provider,
                 cost_usd=res.cost_usd,
+                input_tokens=res.input_tokens,
+                output_tokens=res.output_tokens,
+                cost_saved_usd=res.cost_saved_usd,
+                latency_s=res.latency_s,
             )
             steps.append(step_record)
 
             current_prompt += f"\nAssistant: {response_text}\nTool Output ({tool_name}):\n{tool_output}\nContinue task."
 
+        total_in = sum(s.input_tokens for s in steps)
+        total_out = sum(s.output_tokens for s in steps)
+        total_saved = sum(s.cost_saved_usd for s in steps)
+        total_lat = sum(s.latency_s for s in steps)
+
         return AgentResult(
             final_text="Agentic loop reached maximum steps.",
             steps=steps,
             total_cost_usd=total_cost,
+            total_input_tokens=total_in,
+            total_output_tokens=total_out,
+            total_cost_saved_usd=total_saved,
+            total_latency_s=total_lat,
             completed=False,
         )
 

@@ -115,15 +115,9 @@ def route_cmd(prompt, priority, max_cost, humanize, stream, models_yaml):
         click.echo(res.text)
         click.echo()
 
-        # Print cost / latency footer in subtle gray/dim style
-        footer = (
-            f"[model={res.model:<24} "
-            f"cost=${res.cost_usd:.4f}  "
-            f"latency={res.latency_s:.2f}s  "
-            f"tokens={res.input_tokens}in/{res.output_tokens}out  "
-            f"humanize={humanize}]"
-        )
-        click.echo(click.style(footer, fg="bright_black"))
+        # Render rich telemetry & cost breakdown
+        from ijachi_router.ui import render_route_footer
+        render_route_footer(res, humanize_mode=humanize)
 
     except Exception as e:  # noqa: BLE001
         raise click.ClickException(str(e)) from e
@@ -230,7 +224,10 @@ def agent_cmd(task, priority, model, max_steps, no_approval, style, accessibilit
     result = agent.run(task, max_steps=max_steps)
     click.echo("\n" + click.style("=== Task Result ===", fg="green", bold=True))
     click.echo(result.final_text)
-    click.echo(click.style(f"\n[steps={len(result.steps)} total_cost=${result.total_cost_usd:.4f}]", fg="bright_black"))
+
+    # Render comprehensive task execution & telemetry breakdown
+    from ijachi_router.ui import render_agent_breakdown
+    render_agent_breakdown(result)
 
 
 @main.command(name="chat")
@@ -458,6 +455,16 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
                 print(f"ijachi: {result.final_text}")
             else:
                 click.echo("\n" + result.final_text + "\n")
+                if len(result.steps) > 1:
+                    from ijachi_router.ui import render_agent_breakdown
+                    render_agent_breakdown(result)
+                elif result.steps:
+                    s = result.steps[0]
+                    saved_part = f" · saved ${s.cost_saved_usd:.4f}" if s.cost_saved_usd > 0 else ""
+                    click.echo(click.style(
+                        f"[{s.model_used} · {s.input_tokens}in/{s.output_tokens}out · ${s.cost_usd:.4f}{saved_part} · {s.latency_s:.2f}s]",
+                        fg="bright_black",
+                    ))
 
         except ProviderError as exc:
             if acc:

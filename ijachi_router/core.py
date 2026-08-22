@@ -223,11 +223,28 @@ class Router:
         # 7. Security scan & auto-remediate any vulnerabilities in generated code
         clean_text, _ = scan_and_fix(clean_text)
 
-        # Rebuild result with cleaned text (immutable dataclass - recreate)
-        from dataclasses import replace as dc_replace
-        result = dc_replace(result, text=clean_text)
+        # 8. Compute Telemetry & Cost Savings (Baseline: GPT-4o frontier standard)
+        baseline_model_id = "gpt-4o"
+        baseline_cost_usd = (result.input_tokens / 1000.0) * 0.005 + (result.output_tokens / 1000.0) * 0.015
+        cost_saved_usd = max(0.0, baseline_cost_usd - result.cost_usd)
+        savings_pct = (cost_saved_usd / baseline_cost_usd * 100.0) if baseline_cost_usd > 0 else 0.0
+        tok_sec = (result.input_tokens + result.output_tokens) / result.latency_s if result.latency_s > 0 else 0.0
 
-        # 8. Log
+        # Rebuild result with cleaned text and complete telemetry metrics
+        from dataclasses import replace as dc_replace
+        result = dc_replace(
+            result,
+            text=clean_text,
+            category=category,
+            complexity=cx if not force_model else 0.5,
+            baseline_model=baseline_model_id,
+            baseline_cost_usd=baseline_cost_usd,
+            cost_saved_usd=cost_saved_usd,
+            savings_pct=savings_pct,
+            tokens_per_sec=tok_sec,
+        )
+
+        # 9. Log
         log_result(result)
 
         return result
