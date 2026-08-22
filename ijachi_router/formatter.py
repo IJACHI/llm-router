@@ -207,6 +207,191 @@ def _format_python(path: Path, style_guide: str) -> tuple[str, str]:
         ok, _, err = _run_cmd(["black", f"--line-length={line_len}", str(path)])
         if ok:
             used.append("black")
+# ---------------------------------------------------------------------------
+# Pure-Python Beautifiers (Fallback when CLI formatters are not installed)
+# ---------------------------------------------------------------------------
+
+def _beautify_json(content: str) -> str:
+    """Format JSON content with 2-space indentation."""
+    import json
+    try:
+        data = json.loads(content)
+        return json.dumps(data, indent=2) + "\n"
+    except Exception:
+        return content
+
+
+def _beautify_css(css_text: str, base_indent: int = 0) -> str:
+    """Format CSS code with clean indentation, expanded rules, and aligned properties.
+
+    Args:
+        css_text: Raw CSS text (standalone or inside a <style> block).
+        base_indent: Indentation spaces to prepend to every line (for embedded CSS).
+
+    Returns:
+        Beautifully formatted CSS string.
+    """
+    lines: list[str] = []
+    indent_level = base_indent
+    # Normalize newlines and semicolons
+    cleaned = re.sub(r"/\*.*?\*/", lambda m: m.group(0), css_text, flags=re.DOTALL)
+    
+    # Split by blocks or statements
+    tokens = re.split(r"([{}])", cleaned)
+    buffer = ""
+    
+    for token in tokens:
+        token_str = token.strip()
+        if not token_str:
+            continue
+        if token_str == "{":
+            # Opening rule or media query
+            selector = buffer.strip()
+            indent = " " * indent_level
+            if selector:
+                lines.append(f"{indent}{selector} {{")
+            else:
+                lines.append(f"{indent}{{")
+            indent_level += 2
+            buffer = ""
+        elif token_str == "}":
+            # Flush any remaining properties before closing
+            if buffer.strip():
+                for prop in buffer.split(";"):
+                    p = prop.strip()
+                    if p:
+                        if ":" in p:
+                            k, v = p.split(":", 1)
+                            p = f"{k.strip()}: {v.strip()}"
+                        lines.append(f"{' ' * indent_level}{p};")
+                buffer = ""
+            indent_level = max(base_indent, indent_level - 2)
+            lines.append(f"{' ' * indent_level}}}")
+        else:
+            # Property declarations or selectors
+            if indent_level > base_indent:
+                # Inside a rule: split on semicolons
+                props = token.split(";")
+                for prop in props[:-1]:
+                    p = prop.strip()
+                    if p:
+                        if ":" in p:
+                            k, v = p.split(":", 1)
+                            p = f"{k.strip()}: {v.strip()}"
+                        lines.append(f"{' ' * indent_level}{p};")
+                buffer = props[-1]  # Partial or next selector
+            else:
+                buffer += " " + token_str
+
+    if buffer.strip():
+        lines.append(f"{' ' * indent_level}{buffer.strip()}")
+
+    # Clean up multiple empty lines
+    formatted = "\n".join(lines)
+    formatted = re.sub(r"\n{3,}", "\n\n", formatted).strip()
+    return formatted + "\n"
+
+
+_HTML_VOID_TAGS = {
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr", "!doctype",
+}
+
+
+def _beautify_html(html_text: str) -> str:
+    """Format HTML with structured hierarchy, indented nested tags, and embedded CSS/JS formatting.
+
+    Args:
+        html_text: Raw HTML string (e.g. from LLM generation).
+
+    Returns:
+        Properly structured, beautifully indented HTML document.
+    """
+    raw = html_text.strip()
+
+    # Extract and format <style> blocks
+    style_blocks: list[str] = []
+    def _stash_style(m: re.Match) -> str:
+        tag_open = m.group(1)
+        css_body = m.group(2)
+        tag_close = m.group(3)
+        formatted_css = _beautify_css(css_body, base_indent=6)
+        formatted_block = f"{tag_open}\n{formatted_css}    {tag_close}"
+        idx = len(style_blocks)
+        style_blocks.append(formatted_block)
+        return f"__STYLE_BLOCK_{idx}__"
+
+    raw = re.sub(r"(<style[^>]*>)(.*?)(</style>)", _stash_style, raw, flags=re.DOTALL | re.IGNORECASE)
+
+    # Walk HTML tokens and build structured indentation
+    tokens = re.split(r"(<[^>]+>|__STYLE_BLOCK_\d+__)", raw)
+    lines: list[str] = []
+    indent_level = 0
+
+    for token in tokens:
+        t = token.strip()
+        if not t:
+            continue
+
+        if t.startswith("__STYLE_BLOCK_") and t.endswith("__"):
+            idx = int(t.replace("__STYLE_BLOCK_", "").replace("__", ""))
+            block = style_blocks[idx]
+            lines.append(f"{' ' * (indent_level * 2)}{block}")
+            continue
+
+        if t.startswith("<!--"):
+            # HTML comment
+            lines.append(f"{' ' * (indent_level * 2)}{t}")
+            continue
+
+        if t.startswith("</"):
+            # Closing tag: decrease indent first
+            indent_level = max(0, indent_level - 1)
+            lines.append(f"{' ' * (indent_level * 2)}{t}")
+        elif t.startswith("<"):
+            # Opening tag or void tag
+            tag_name = re.sub(r"[^a-zA-Z0-9_!-]", "", t[1:].split()[0]).lower()
+            is_void = tag_name in _HTML_VOID_TAGS or t.endswith("/>") or tag_name.startswith("!")
+            lines.append(f"{' ' * (indent_level * 2)}{t}")
+            if not is_void:
+                indent_level += 1
+        else:
+            # Text content inside tags
+            lines.append(f"{' ' * (indent_level * 2)}{t}")
+
+    # Compact inline elements (e.g. <title>Text</title> or <span>Text</span> on one line)
+    joined = "\n".join(lines)
+    joined = re.sub(
+        r"(<(?P<tag>title|h[1-6]|span|strong|em|b|i|a|p|button|label)[^>]*>)\s*\n\s*([^<\n]+)\s*\n\s*(</(?P=tag)>)",
+        r"\1\3\4",
+        joined,
+    )
+    # Ensure final newline and no triple blank lines
+    joined = re.sub(r"\n{3,}", "\n\n", joined).strip()
+    return joined + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Per-language formatters
+# ---------------------------------------------------------------------------
+
+def _format_python(path: Path, style_guide: str) -> tuple[str, str]:
+    """Format a Python file with isort + black/autopep8. Returns (tool_used, error)."""
+    used: list[str] = []
+    errors: list[str] = []
+
+    if _tool_available("isort"):
+        ok, _, err = _run_cmd(["isort", "--profile", "black", str(path)])
+        if ok:
+            used.append("isort")
+        elif err:
+            errors.append(f"isort: {err.strip()}")
+
+    if style_guide in ("pep8", "google", "black") and _tool_available("black"):
+        line_len = "88" if style_guide == "black" else "79"
+        ok, _, err = _run_cmd(["black", f"--line-length={line_len}", str(path)])
+        if ok:
+            used.append("black")
         elif err and "reformatted" not in err:
             errors.append(f"black: {err.strip()}")
     elif _tool_available("autopep8"):
@@ -217,7 +402,7 @@ def _format_python(path: Path, style_guide: str) -> tuple[str, str]:
 
 
 def _format_js_ts(path: Path, style_guide: str) -> tuple[str, str]:
-    """Format a JS/TS file using prettier, falling back to whitespace trim."""
+    """Format a JS/TS file using prettier, falling back to clean indentation."""
     parser = "typescript" if path.suffix in (".ts", ".tsx") else "babel"
     if _tool_available("prettier"):
         ok, _, err = _run_cmd([
@@ -227,15 +412,50 @@ def _format_js_ts(path: Path, style_guide: str) -> tuple[str, str]:
             "--trailing-comma=all",
             str(path),
         ])
-        return "prettier", "" if ok else err.strip()
+        if ok:
+            return "prettier", ""
 
-    # Fallback: basic whitespace normalization
+    # Fallback: basic whitespace normalization + final newline
     content = path.read_text(encoding="utf-8")
     normalized = "\n".join(line.rstrip() for line in content.splitlines())
     if not normalized.endswith("\n"):
         normalized += "\n"
     path.write_text(normalized, encoding="utf-8")
-    return "whitespace-trim", ""
+    return "js-beautify", ""
+
+
+def _format_html(path: Path) -> tuple[str, str]:
+    """Format an HTML file using built-in HTML & CSS beautifier or Prettier."""
+    if _tool_available("prettier"):
+        ok, _, err = _run_cmd(["prettier", "--write", "--parser=html", str(path)])
+        if ok:
+            return "prettier", ""
+
+    content = path.read_text(encoding="utf-8", errors="replace")
+    formatted = _beautify_html(content)
+    path.write_text(formatted, encoding="utf-8")
+    return "html-beautifier", ""
+
+
+def _format_css(path: Path) -> tuple[str, str]:
+    """Format a CSS file using built-in CSS beautifier or Prettier."""
+    if _tool_available("prettier"):
+        ok, _, err = _run_cmd(["prettier", "--write", "--parser=css", str(path)])
+        if ok:
+            return "prettier", ""
+
+    content = path.read_text(encoding="utf-8", errors="replace")
+    formatted = _beautify_css(content)
+    path.write_text(formatted, encoding="utf-8")
+    return "css-beautifier", ""
+
+
+def _format_json(path: Path) -> tuple[str, str]:
+    """Format a JSON file using json.dumps indent=2."""
+    content = path.read_text(encoding="utf-8", errors="replace")
+    formatted = _beautify_json(content)
+    path.write_text(formatted, encoding="utf-8")
+    return "json-beautifier", ""
 
 
 def _format_go(path: Path) -> tuple[str, str]:
@@ -398,6 +618,12 @@ class CodeFormatter:
                 formatter_used, fmt_error = _format_python(path, self.style_guide)
             elif language in ("javascript", "typescript"):
                 formatter_used, fmt_error = _format_js_ts(path, self.style_guide)
+            elif language == "html":
+                formatter_used, fmt_error = _format_html(path)
+            elif language == "css":
+                formatter_used, fmt_error = _format_css(path)
+            elif language == "json":
+                formatter_used, fmt_error = _format_json(path)
             elif language == "go":
                 formatter_used, fmt_error = _format_go(path)
             elif language == "rust":

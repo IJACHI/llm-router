@@ -204,10 +204,12 @@ class WorkspaceTools:
             Status message describing the outcome.
         """
         target = self._resolve_path(path)
-        ext = target.suffix.lower()
-
-        # Pre-format content string before validation
-        content = self.formatter.format_content(content, filename=str(target))
+        
+        # Pre-format content using language-specific formatter (HTML, CSS, JS, Python, JSON)
+        try:
+            content = self.formatter.format_content(content, str(target))
+        except Exception:
+            pass
 
         # Zero-regression validation gate
         val = validate(content, filename=str(target))
@@ -231,6 +233,22 @@ class WorkspaceTools:
             else:
                 console.print(f"\n[bold yellow]⚠️ Workspace File Creation/Overwrite Request[/bold yellow]")
                 console.print(f"Target path: [cyan]{target}[/cyan]")
+                # Syntax-highlighted preview
+                try:
+                    from rich.syntax import Syntax
+                    from rich.panel import Panel
+                    ext = target.suffix.lstrip(".") or "txt"
+                    lines = content.splitlines()
+                    preview_text = "\n".join(lines[:25])
+                    if len(lines) > 25:
+                        preview_text += f"\n... [{len(lines) - 25} more lines omitted]"
+                    console.print(Panel(
+                        Syntax(preview_text, ext, theme="monokai", line_numbers=True),
+                        title=f"[cyan]{target.name}[/cyan] ({len(lines)} lines)",
+                        border_style="dim cyan",
+                    ))
+                except Exception:
+                    pass
                 if not Confirm.ask("Do you want to proceed with writing to this file?", default=True):
                     return "Cancelled by user."
         try:
@@ -576,6 +594,41 @@ class AgentResult:
         return table
 
 
+def _format_tool_call_summary(tool_name: str | None, args: dict[str, Any]) -> str:
+    """Format a clean, concise, human-friendly summary of a tool invocation."""
+    if not tool_name:
+        return "💭 Direct Response"
+    if tool_name == "write_file":
+        path = args.get("path", "")
+        content = args.get("content", "")
+        lines = len(content.splitlines()) if isinstance(content, str) else 0
+        size = len(content.encode("utf-8")) if isinstance(content, str) else 0
+        size_str = f"{size / 1024:.1f} KB" if size >= 1024 else f"{size} B"
+        return f"⚙️ write_file(path='[bold cyan]{path}[/bold cyan]') [dim]({lines} lines, {size_str})[/dim]"
+    elif tool_name == "edit_file":
+        path = args.get("path", "")
+        return f"⚙️ edit_file(path='[bold cyan]{path}[/bold cyan]')"
+    elif tool_name == "read_file":
+        path = args.get("path", "")
+        start = args.get("start_line")
+        end = args.get("end_line")
+        range_str = f", lines {start}-{end}" if start or end else ""
+        return f"⚙️ read_file(path='[bold cyan]{path}[/bold cyan]'{range_str})"
+    elif tool_name == "run_command":
+        cmd = args.get("command", "")
+        return f"⚙️ run_command('[bold green]{cmd}[/bold green]')"
+    elif tool_name == "grep_search":
+        q = args.get("query", "")
+        p = args.get("search_path", ".")
+        return f"⚙️ grep_search(query='[bold yellow]{q}[/bold yellow]', path='{p}')"
+    elif tool_name == "list_dir":
+        p = args.get("path", ".")
+        return f"⚙️ list_dir(path='{p}')"
+    else:
+        filtered = {k: v for k, v in args.items() if k != "content"}
+        return f"⚙️ {tool_name}({filtered})"
+
+
 _STYLE_INSTRUCTION = """
 ## Code Generation Requirements
 - Write clean, idiomatic, production-ready code.
@@ -778,8 +831,10 @@ class AgenticRouter:
                 print(f"ijachi: {thought}")
                 print(f"tool: {tool_name}({list(args.keys())})")
             else:
-                console.print(f"[dim]Thought: {thought}[/dim]")
-                console.print(f"[bold yellow]Tool Call: {tool_name}({args})[/bold yellow]")
+                if thought:
+                    console.print(f"[dim]Thought: {thought}[/dim]")
+                tool_summary = _format_tool_call_summary(tool_name, args)
+                console.print(f"[bold yellow]{tool_summary}[/bold yellow]")
 
             from ijachi_router.ui import status_spinner
             with status_spinner(f"Executing {tool_name}...") as tool_spinner:
