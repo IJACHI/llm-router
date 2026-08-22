@@ -105,11 +105,23 @@ class WorkspaceTools:
         root_dir: Path | str | None = None,
         formatter: CodeFormatter | None = None,
         accessible: bool = False,
+        task_panel: TaskPanel | None = None,
     ):
         self.root_dir = Path(root_dir or Path.cwd()).resolve()
         self.formatter = formatter or CodeFormatter()
         self.accessible = accessible
+        self.task_panel = task_panel
         self.auto_approve_task: bool = False
+
+    def _prompt_user(self, prompt_func: Callable[[], str]) -> str:
+        """Execute an interactive prompt while pausing any active live TaskPanel."""
+        if hasattr(self, "task_panel") and self.task_panel is not None:
+            self.task_panel.stop()
+        try:
+            return prompt_func()
+        finally:
+            if hasattr(self, "task_panel") and self.task_panel is not None:
+                self.task_panel.start()
 
     def _resolve_path(self, relative_or_abs: str) -> Path:
         p = Path(relative_or_abs)
@@ -169,7 +181,7 @@ class WorkspaceTools:
         if require_approval and not self.auto_approve_task:
             if self.accessible:
                 print(f"permission_required: Write to {target}? [y/n/a=all]: ")
-                answer = input().strip().lower()
+                answer = self._prompt_user(lambda: input().strip().lower())
                 if answer in ("a", "all"):
                     self.auto_approve_task = True
                 elif answer not in ("y", ""):
@@ -179,7 +191,7 @@ class WorkspaceTools:
                 console.print(f"Target path: [cyan]{target}[/cyan]")
                 console.print("[dim]Options: [bold]y[/bold]=proceed  [bold]a[/bold]=approve all in task  [bold]n[/bold]=cancel[/dim]")
                 try:
-                    choice = input("Choice [y/n/a]: ").strip().lower()
+                    choice = self._prompt_user(lambda: input("Choice [y/n/a]: ").strip().lower())
                 except (KeyboardInterrupt, EOFError):
                     choice = "n"
                 if choice in ("a", "all"):
@@ -245,7 +257,7 @@ class WorkspaceTools:
             if require_approval and not self.auto_approve_task:
                 if self.accessible:
                     print(f"permission_required: Edit {target}? [y/n/a=all/e=explain]: ")
-                    answer = input().strip().lower()
+                    answer = self._prompt_user(lambda: input().strip().lower())
                     if answer in ("a", "all"):
                         self.auto_approve_task = True
                     elif answer not in ("y", ""):
@@ -256,13 +268,13 @@ class WorkspaceTools:
                     DiffRenderer(accessible=self.accessible).print(existing, new_content, str(path))
                     console.print("[dim]Options: [bold]y[/bold]=apply  [bold]a[/bold]=approve all  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
                     try:
-                        choice = input("Choice [y/n/a/e]: ").strip().lower()
+                        choice = self._prompt_user(lambda: input("Choice [y/n/a/e]: ").strip().lower())
                     except (KeyboardInterrupt, EOFError):
                         choice = "n"
                     if choice == "e":
                         self._explain_edit(target_content, replacement_content)
                         try:
-                            choice = input("Apply after explanation? [y/n/a]: ").strip().lower()
+                            choice = self._prompt_user(lambda: input("Apply after explanation? [y/n/a]: ").strip().lower())
                         except (KeyboardInterrupt, EOFError):
                             choice = "n"
                     if choice in ("a", "all"):
@@ -346,7 +358,7 @@ class WorkspaceTools:
             if self.accessible:
                 print(f"permission_required: Run command '{command}'? [y/n/a=all/e=explain]: ")
                 try:
-                    answer = input().strip().lower()
+                    answer = self._prompt_user(lambda: input().strip().lower())
                 except (KeyboardInterrupt, EOFError):
                     answer = "n"
                 if answer in ("a", "all"):
@@ -358,13 +370,13 @@ class WorkspaceTools:
                 console.print(f"Command: [bold cyan]{command}[/bold cyan]")
                 console.print("[dim]Options: [bold]y[/bold]=run  [bold]a[/bold]=approve all in task  [bold]n[/bold]=cancel  [bold]e[/bold]=explain[/dim]")
                 try:
-                    choice = input("Choice [y/n/a/e]: ").strip().lower()
+                    choice = self._prompt_user(lambda: input("Choice [y/n/a/e]: ").strip().lower())
                 except (KeyboardInterrupt, EOFError):
                     choice = "n"
                 if choice == "e":
                     self._explain_command(command)
                     try:
-                        choice = input("Run after explanation? [y/n/a]: ").strip().lower()
+                        choice = self._prompt_user(lambda: input("Run after explanation? [y/n/a]: ").strip().lower())
                     except (KeyboardInterrupt, EOFError):
                         choice = "n"
                 if choice in ("a", "all"):
@@ -700,6 +712,7 @@ class AgenticRouter:
         self.accessible = accessible
         self.permission_mode = permission_mode
         self.checklist = TaskPanel(accessible=accessible)
+        self.tools.task_panel = self.checklist
         self.planner = PlanModePlanner(workspace_root=self.tools.root_dir, accessible=accessible)
         self.background = BackgroundUIManager()
 
