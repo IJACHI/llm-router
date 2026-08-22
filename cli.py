@@ -194,11 +194,12 @@ def train():
 @click.argument("task")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
 @click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, claude-3-5-sonnet).")
-@click.option("--max-steps", "-s", type=int, default=10, help="Maximum tool iteration steps.")
-@click.option("--no-approval", is_flag=True, help="Auto-approve file changes and shell commands.")
-@click.option("--style", default=None, help="Code style guide (pep8, black, google, prettier, airbnb).")
+@click.option("--max-steps", "-s", default=10, help="Maximum number of agent loop steps.")
+@click.option("--no-approval", is_flag=True, help="Skip confirmation prompts for file modifications and commands.")
+@click.option("--full-auto", "-y", is_flag=True, help="Full Auto Mode: automatically approve and execute all actions with safety checkpoints.")
+@click.option("--style", default=None, help="Code style guide to enforce (pep8, black, google, prettier, airbnb).")
 @click.option("--accessibility", "-a", is_flag=True, help="Screen-reader accessibility mode.")
-def agent_cmd(task, priority, model, max_steps, no_approval, style, accessibility):
+def agent_cmd(task, priority, model, max_steps, no_approval, full_auto, style, accessibility):
     """[AGENTIC] Run an autonomous workspace file editing task."""
     from ijachi_router.agent import AgenticRouter
     from ijachi_router.config import load_config
@@ -206,16 +207,21 @@ def agent_cmd(task, priority, model, max_steps, no_approval, style, accessibilit
     cfg = load_config()
     style_guide = style or cfg.style_guide
     acc = accessibility or cfg.accessibility
+    is_auto = full_auto or no_approval
 
     agent = AgenticRouter(
         priority=priority,
-        require_approval=not no_approval,
+        require_approval=not is_auto,
         style_guide=style_guide,
         auto_format=cfg.auto_format,
         require_comments=cfg.require_comments,
         accessible=acc,
         force_model=model,
+        full_auto=is_auto,
     )
+    if is_auto:
+        click.echo(click.style("⚠️  FULL AUTO MODE ACTIVATED: Actions will auto-execute. Safety snapshots are enabled.", fg="red", bold=True))
+
     if acc:
         print(f"ijachi: Starting autonomous task: {task}")
     else:
@@ -233,11 +239,12 @@ def agent_cmd(task, priority, model, max_steps, no_approval, style, accessibilit
 @main.command(name="chat")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
 @click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, claude-3-5-sonnet).")
+@click.option("--full-auto", "-y", is_flag=True, help="Full Auto Mode: auto-approve all workspace actions.")
 @click.option("--style", default=None, help="Code style guide (pep8, black, google, prettier, airbnb).")
 @click.option("--accessibility", "-a", is_flag=True, help="Screen-reader accessibility mode (sequential labeled output).")
 @click.option("--theme", default=None, help="UI theme: dark, light, ansi, accessible, auto.")
 @click.option("--vim", is_flag=True, default=False, help="Enable Vim editing mode in the prompt.")
-def chat_cmd(priority, model, style, accessibility, theme, vim):
+def chat_cmd(priority, model, full_auto, style, accessibility, theme, vim):
     """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
     from ijachi_router.agent import AgenticRouter
     from ijachi_router.config import load_config
@@ -263,14 +270,17 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
     except Exception:
         pass
 
+    permission_mode = "full-auto" if full_auto else "manual"
+
     agent = AgenticRouter(
         priority=priority,
-        require_approval=True,
+        require_approval=not full_auto,
         style_guide=style_guide,
         auto_format=cfg.auto_format,
         require_comments=cfg.require_comments,
         accessible=acc,
         force_model=model,
+        full_auto=full_auto,
     )
 
     # Session transcript
@@ -420,15 +430,45 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
                     from ijachi_router.prompt_engine import _HELP_TEXT
                     print(_HELP_TEXT)
 
+                elif cmd in ("undo", "rewind"):
+                    ok, msg = agent.undo()
+                    color = "green" if ok else "yellow"
+                    click.echo(click.style(msg, fg=color, bold=ok))
+
+                elif cmd in ("checkpoints", "checkpoint", "history"):
+                    agent.checkpoint_manager.print_checkpoints_table()
+
+                elif cmd in ("revert", "restore"):
+                    if not arg:
+                        click.echo("Usage: /revert <checkpoint_id>")
+                    else:
+                        ok, msg = agent.restore_checkpoint(arg.strip())
+                        color = "green" if ok else "yellow"
+                        click.echo(click.style(msg, fg=color, bold=ok))
+
                 elif cmd == "mode":
-                    permission_mode = cycle_permission_mode(permission_mode)
-                    if engine:
-                        engine.set_permission_mode(permission_mode)
-                    from ijachi_router.ui import get_permission_mode_label
-                    click.echo(click.style(
-                        f"✓ Permission mode: {get_permission_mode_label(permission_mode)}",
-                        fg="cyan",
-                    ))
+                    if arg.lower() in ("auto", "full-auto", "yolo"):
+                        permission_mode = "full-auto"
+                        agent.set_full_auto(True)
+                        if engine:
+                            engine.set_permission_mode("full-auto")
+                        click.echo(click.style("⚠️  FULL AUTO MODE ACTIVATED: Actions will auto-execute. Safety snapshots are enabled.", fg="red", bold=True))
+                    elif arg.lower() in ("manual", "prompt"):
+                        permission_mode = "manual"
+                        agent.set_full_auto(False)
+                        if engine:
+                            engine.set_permission_mode("manual")
+                        click.echo(click.style("✓ Permission mode: ⏸ manual (prompt for approvals).", fg="green"))
+                    else:
+                        permission_mode = cycle_permission_mode(permission_mode)
+                        agent.set_full_auto(permission_mode in ("auto", "full-auto"))
+                        if engine:
+                            engine.set_permission_mode(permission_mode)
+                        from ijachi_router.ui import get_permission_mode_label
+                        click.echo(click.style(
+                            f"✓ Permission mode: {get_permission_mode_label(permission_mode)}",
+                            fg="cyan",
+                        ))
                 else:
                     click.echo(click.style(f"Unknown command: /{cmd}. Type /help for commands.", fg="yellow"))
                 continue
@@ -953,6 +993,42 @@ def theme_cmd(theme_name):
     click.echo(click.style(f"✓ Theme switched to '{applied}' and saved.", fg="green"))
 
 
+# ---------------------------------------------------------------------------
+# Checkpoint / Version Control command group
+# ---------------------------------------------------------------------------
+
+@main.group(name="checkpoint")
+def checkpoint_group():
+    """[VERSION CONTROL] Inbuilt workspace state checkpoints and step-by-step undo."""
+    pass
+
+
+@checkpoint_group.command(name="list")
+def checkpoint_list_cmd():
+    """List all recorded workspace state recovery points."""
+    from ijachi_router.checkpoint_manager import CheckpointManager
+    CheckpointManager().print_checkpoints_table()
+
+
+@checkpoint_group.command(name="undo")
+def checkpoint_undo_cmd():
+    """Undo the last workspace action / task change."""
+    from ijachi_router.checkpoint_manager import CheckpointManager
+    ok, msg = CheckpointManager().undo_last()
+    color = "green" if ok else "yellow"
+    click.echo(click.style(msg, fg=color, bold=ok))
+
+
+@checkpoint_group.command(name="revert")
+@click.argument("checkpoint_id")
+def checkpoint_revert_cmd(checkpoint_id: str):
+    """Revert workspace to a specific checkpoint by ID."""
+    from ijachi_router.checkpoint_manager import CheckpointManager
+    ok, msg = CheckpointManager().restore_checkpoint(checkpoint_id)
+    color = "green" if ok else "yellow"
+    click.echo(click.style(msg, fg=color, bold=ok))
+
+
 def code_main():
     """Standalone ijachi-code CLI entrypoint tuned specifically for coding tasks."""
     import sys
@@ -961,7 +1037,7 @@ def code_main():
         "serve", "dashboard", "license", "setup", "launcher", "export-sdk",
         "models", "keys", "agent", "chat", "swarm", "fix", "consensus",
         "index", "doc", "commit", "benchmark", "budget", "extension-server",
-        "update", "skills", "theme",
+        "update", "skills", "theme", "checkpoint",
     }
     args = sys.argv[1:]
     if args and not args[0].startswith("-") and args[0] not in known_commands:

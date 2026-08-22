@@ -40,4 +40,5 @@ license.key
 *.key
 .gh-router-extension/
 .ijachi-app/
+.ijachi/
 

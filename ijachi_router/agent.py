@@ -166,6 +166,8 @@ class WorkspaceTools:
         self.root_dir = Path(root_dir or Path.cwd()).resolve()
         self.formatter = formatter or CodeFormatter()
         self.accessible = accessible
+        from ijachi_router.checkpoint_manager import CheckpointManager
+        self.checkpoints = CheckpointManager(workspace_root=self.root_dir)
 
     def _resolve_path(self, relative_or_abs: str) -> Path:
         p = Path(relative_or_abs)
@@ -189,21 +191,19 @@ class WorkspaceTools:
             return f"Error reading file '{path}': {e}"
 
     def write_file(self, path: str, content: str, require_approval: bool = True) -> str:
-        """Write *content* to *path*, applying formatting and security scans.
+        """Write *content* to *path*, applying formatting, snapshotting, and security scans.
 
-        Pre-formats the content string, validates syntax, runs a security scan,
-        prompts for approval if required, writes the file, then runs a post-write
-        lint gate and format pass.
-
-        Args:
-            path: Relative or absolute file path.
-            content: Full file content to write.
-            require_approval: If True, prompt the user before writing.
-
-        Returns:
-            Status message describing the outcome.
+        Pre-formats the content string, takes a state checkpoint, validates syntax,
+        runs a security scan, prompts for approval if required, writes the file,
+        then runs a post-write lint gate.
         """
         target = self._resolve_path(path)
+        
+        # Take an automatic safety checkpoint of the file before modifying
+        try:
+            self.checkpoints.snapshot_file_before_action(path, action_desc="write_file")
+        except Exception:
+            pass
         
         # Pre-format content using language-specific formatter (HTML, CSS, JS, Python, JSON)
         try:
@@ -268,25 +268,17 @@ class WorkspaceTools:
             return f"Error writing file '{path}': {e}"
 
     def edit_file(self, path: str, target_content: str, replacement_content: str, require_approval: bool = True) -> str:
-        """Apply a targeted edit to *path*, formatting and scanning the result.
-
-        Finds *target_content* in the file, replaces it with *replacement_content*,
-        validates the resulting file, runs a security scan, prompts for approval,
-        writes it, then runs a post-write lint gate.
-
-        Args:
-            path: Relative or absolute file path.
-            target_content: Exact string to search for in the file.
-            replacement_content: Replacement string.
-            require_approval: If True, show a diff and prompt before writing.
-
-        Returns:
-            Status message describing the outcome.
-        """
+        """Apply a targeted edit to *path*, formatting, snapshotting, and scanning the result."""
         target = self._resolve_path(path)
         if not target.exists():
             return f"Error: File '{path}' does not exist."
         try:
+            # Take an automatic safety checkpoint of the file before modifying
+            try:
+                self.checkpoints.snapshot_file_before_action(path, action_desc="edit_file")
+            except Exception:
+                pass
+
             existing = target.read_text(encoding="utf-8")
             if target_content not in existing:
                 return f"Error: Target content string not found in '{path}'."
@@ -410,15 +402,16 @@ class WorkspaceTools:
             return f"Error running grep search: {e}"
 
     def run_command(self, command: str, require_approval: bool = True) -> str:
-        """Run *command* as a shell command, with optional approval prompt.
+        """Run *command* as a shell command, with optional approval prompt."""
+        # Safety guardrail: hard block catastrophic commands
+        dangerous = [
+            "rm -rf /", "rm -rf ~", "rm -rf /*", "mkfs", "dd if=",
+            "chmod -R 777 /", "> /dev/sda", "sudo reboot", "sudo shutdown", "rm -rf .git"
+        ]
+        cmd_clean = command.strip().lower()
+        if any(d in cmd_clean for d in dangerous):
+            return f"Security Error: Command '{command}' is blocked by ijachi safety guardrails (prohibited destructive action)."
 
-        Args:
-            command: Shell command string to execute.
-            require_approval: If True, prompt before running.
-
-        Returns:
-            String combining exit code, stdout, and stderr.
-        """
         if require_approval:
             if self.accessible:
                 print(f"permission_required: Run command '{command}'? [y/n/e=explain]: ")
@@ -694,6 +687,7 @@ class AgenticRouter:
         require_comments: bool = True,
         accessible: bool = False,
         force_model: str | None = None,
+        full_auto: bool = False,
     ):
         self.formatter = CodeFormatter(
             style_guide=style_guide,
@@ -707,13 +701,30 @@ class AgenticRouter:
         )
         self.priority = priority
         self.force_model = force_model
-        self.require_approval = require_approval
+        self.full_auto = full_auto
+        self.require_approval = False if full_auto else require_approval
         self.accessible = accessible
         self.checklist = TaskChecklist(accessible=accessible)
 
         # Load and prepare skill manager
         from ijachi_router.skill_manager import SkillManager
         self._skill_manager = SkillManager(workspace_root=self.tools.root_dir)
+
+    @property
+    def checkpoint_manager(self):
+        return self.tools.checkpoints
+
+    def undo(self) -> tuple[bool, str]:
+        """Undo the last workspace action / checkpoint."""
+        return self.tools.checkpoints.undo_last()
+
+    def restore_checkpoint(self, checkpoint_id: str) -> tuple[bool, str]:
+        """Restore workspace state to a specific checkpoint."""
+        return self.tools.checkpoints.restore_checkpoint(checkpoint_id)
+
+    def list_checkpoints(self):
+        """List all workspace checkpoints."""
+        return self.tools.checkpoints.list_checkpoints()
 
     def set_model(self, model_id: str | None) -> None:
         """Switch or pin a specific model dynamically."""
@@ -723,6 +734,11 @@ class AgenticRouter:
         """Switch routing priority dynamically."""
         self.priority = priority
         self.force_model = None
+
+    def set_full_auto(self, enabled: bool) -> None:
+        """Enable or disable full auto-approval mode."""
+        self.full_auto = enabled
+        self.require_approval = not enabled
 
     def run(self, task: str, max_steps: int = 10) -> AgentResult:
         """Execute *task* autonomously using the workspace tool set.
