@@ -255,9 +255,12 @@ def agent_cmd(task, priority, model, max_steps, no_approval, style, accessibilit
 @click.option("--model", "-m", default=None, help="Force a specific model (e.g. gpt-4o, sonnet-3-5).")
 @click.option("--style", default=None, help="Code style guide (pep8, black, google, prettier, airbnb).")
 @click.option("--accessibility", "-a", is_flag=True, help="Screen-reader accessibility mode (sequential labeled output).")
-@click.option("--theme", default=None, help="UI theme: dark, light, ansi, accessible, auto, coral.")
+@click.option("--theme", default=None, help="UI theme: dark, light, ansi, accessible, auto, claude.")
 @click.option("--vim", is_flag=True, default=False, help="Enable Vim editing mode in the prompt.")
-def chat_cmd(priority, model, style, accessibility, theme, vim):
+@click.option("--no-approval", is_flag=True, help="Auto-approve file changes and shell commands (non-interactive mode).")
+@click.option("--max-steps", "-s", type=int, default=10, help="Maximum tool iteration steps per turn.")
+@click.option("--timeout", type=int, default=None, help="Provider call timeout in seconds (default: 120).")
+def chat_cmd(priority, model, style, accessibility, theme, vim, no_approval, max_steps, timeout):
     """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
     from ijachi_router.agent import AgenticRouter
     from ijachi_router.config import load_config
@@ -277,7 +280,7 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
     cfg = load_config()
     style_guide = style or cfg.style_guide
     acc = accessibility or cfg.accessibility
-    active_theme = theme or cfg.theme or "coral"
+    active_theme = theme or cfg.theme or "claude"
     vim_mode = vim or cfg.vim_mode
 
     # Permission mode (cycled with /mode or Shift+Tab)
@@ -296,13 +299,14 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
 
     agent = AgenticRouter(
         priority=priority,
-        require_approval=True,
+        require_approval=not no_approval,
         style_guide=style_guide,
         auto_format=cfg.auto_format,
         require_comments=cfg.require_comments,
         accessible=acc,
         force_model=model,
         permission_mode=permission_mode,
+        timeout=timeout,
     )
 
     # Session transcript
@@ -328,21 +332,24 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
     # Chat message renderer
     chat_renderer = ChatMessageRenderer(accessible=acc)
 
-    # Build PromptEngine (falls back to input() if prompt_toolkit not installed)
-    try:
-        from ijachi_router.prompt_engine import PromptEngine
-        engine = PromptEngine(
-            workspace_root=agent.tools.root_dir,
-            model=model or f"auto ({priority})",
-            vim_mode=vim_mode,
-            permission_mode=permission_mode,
-            on_transcript_open=_open_transcript,
-            on_checklist_toggle=_toggle_checklist,
-            on_rewind=_rewind,
-            skill_names=[s.name for s in skill_manager.list_skills()],
-        )
-    except Exception:
-        engine = None  # Fallback to plain input()
+    # Build PromptEngine unless in accessibility mode (plain input() is better for
+    # screen readers and non-TTY smoke tests).
+    engine = None
+    if not acc:
+        try:
+            from ijachi_router.prompt_engine import PromptEngine
+            engine = PromptEngine(
+                workspace_root=agent.tools.root_dir,
+                model=model or f"auto ({priority})",
+                vim_mode=vim_mode,
+                permission_mode=permission_mode,
+                on_transcript_open=_open_transcript,
+                on_checklist_toggle=_toggle_checklist,
+                on_rewind=_rewind,
+                skill_names=[s.name for s in skill_manager.list_skills()],
+            )
+        except Exception:
+            engine = None  # Fallback to plain input()
 
     # Session header / welcome card
     if acc:
@@ -525,7 +532,7 @@ def chat_cmd(priority, model, style, accessibility, theme, vim):
             if not acc:
                 ui_console.print(chat_renderer.render_user_prompt(stripped))
 
-            result = agent.run(stripped)
+            result = agent.run(stripped, max_steps=max_steps)
             session_cost += result.total_cost_usd
 
             if engine:
@@ -1109,9 +1116,9 @@ def skills_add_cmd(path):
 
 
 @main.command(name="theme")
-@click.argument("theme_name", type=click.Choice(["dark", "light", "ansi", "accessible", "auto"]), required=False)
+@click.argument("theme_name", type=click.Choice(["dark", "light", "ansi", "accessible", "claude", "auto"]), required=False)
 def theme_cmd(theme_name):
-    """Switch or display the active UI theme (dark/light/ansi/accessible/auto)."""
+    """Switch or display the active UI theme (dark/light/ansi/accessible/claude/auto)."""
     from ijachi_router.ui import set_theme, get_current_theme, list_themes
 
     if not theme_name:

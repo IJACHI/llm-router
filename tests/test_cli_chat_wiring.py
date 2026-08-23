@@ -30,7 +30,7 @@ def test_theme_switching():
 def test_list_themes_includes_known_themes():
     """list_themes exposes all shipped themes plus auto."""
     themes = list_themes()
-    for name in ("dark", "light", "ansi", "accessible", "coral", "auto"):
+    for name in ("dark", "light", "ansi", "accessible", "claude", "auto"):
         assert name in themes
 
 

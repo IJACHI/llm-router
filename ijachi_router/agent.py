@@ -695,6 +695,7 @@ class AgenticRouter:
         force_model: str | None = None,
         context_manager: Any | None = None,
         permission_mode: str = "manual",
+        timeout: int | None = None,
     ):
         self.formatter = CodeFormatter(
             style_guide=style_guide,
@@ -708,6 +709,7 @@ class AgenticRouter:
         )
         self.priority = priority
         self.force_model = force_model
+        self.timeout = timeout
         self.require_approval = require_approval
         self.accessible = accessible
         self.permission_mode = permission_mode
@@ -816,7 +818,7 @@ class AgenticRouter:
                     console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
 
                 # Route with isolated system prompt and high token limit for file generation
-                res = route(
+                route_kwargs = dict(
                     prompt=current_prompt,
                     priority=self.priority,
                     force_model=self.force_model,
@@ -824,6 +826,9 @@ class AgenticRouter:
                     system_prompt=full_system_prompt,
                     max_tokens=8192,
                 )
+                if self.timeout is not None:
+                    route_kwargs["timeout"] = self.timeout
+                res = route(**route_kwargs)
                 total_cost += res.cost_usd
                 telemetry.emit_llm_call(
                     model=res.model,

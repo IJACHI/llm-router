@@ -10,7 +10,7 @@ Themes
 - ansi       : Pure ANSI 16-color, compatible with all terminals
 - accessible : High-contrast sequential output for screen readers
 - auto       : Follows terminal COLORFGBG hint; falls back to 'dark'
-- coral      : Coral/orange terminal palette (chat default)
+- claude      : Coral/orange terminal palette (chat default)
 
 Usage
 -----
@@ -41,7 +41,7 @@ from rich.theme import Theme
 # Theme definitions
 # ---------------------------------------------------------------------------
 
-ThemeName = Literal["dark", "light", "ansi", "accessible", "auto", "coral"]
+ThemeName = Literal["dark", "light", "ansi", "accessible", "auto", "claude"]
 
 _THEMES: dict[str, Theme] = {
     "dark": Theme({
@@ -114,7 +114,7 @@ _THEMES: dict[str, Theme] = {
         "error":          "bold",
         "success":        "bold",
     }),
-    "coral": Theme({
+    "claude": Theme({
         # Coral/orange on dark navy
         "banner":         "bold #e08e79",
         "banner.sub":     "dim #e08e79 italic",
