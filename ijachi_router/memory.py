@@ -285,7 +285,7 @@ class ProjectMemory:
                 "Focus on facts that would help a future session continue this work.\n\n"
                 f"Tasks completed:\n{history}"
             )
-            res = route(prompt=prompt, priority="speed", humanize_mode="off")
+            res = route(prompt=prompt, priority="speed", humanize_mode="off", timeout=5)
             return res.text.strip()
         except Exception:
             return self._rule_summarise(turns)
@@ -299,7 +299,7 @@ class ProjectMemory:
                 "into one concise bullet-point digest (maximum 300 words):\n\n"
                 f"{combined_text}"
             )
-            res = route(prompt=prompt, priority="speed", humanize_mode="off")
+            res = route(prompt=prompt, priority="speed", humanize_mode="off", timeout=5)
             return res.text.strip()
         except Exception:
             return combined_text[:1200]

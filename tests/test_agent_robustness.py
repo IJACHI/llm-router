@@ -120,7 +120,7 @@ def test_workspace_tools_auto_approve_task(tmp_path):
 
 def test_agent_retry_on_invalid_json_then_succeed(monkeypatch, tmp_path):
     """Test agent recovers when LLM outputs broken JSON on step 1, then fixes it on step 2."""
-    agent = AgenticRouter(root_dir=tmp_path, require_approval=False)
+    agent = AgenticRouter(root_dir=tmp_path, require_approval=False, memory_dir=tmp_path / "mem")
 
     responses = [
         # Step 1: Broken JSON with missing closing quote and tool keyword
@@ -249,7 +249,7 @@ class Article:
 
 def test_agent_auto_writes_markdown_code_blocks(monkeypatch, tmp_path):
     """Test that when a model outputs markdown code blocks, the agent extracts and writes them to disk."""
-    agent = AgenticRouter(root_dir=tmp_path, require_approval=False)
+    agent = AgenticRouter(root_dir=tmp_path, require_approval=False, memory_dir=tmp_path / "mem")
 
     markdown_response = """
 Here are the files for your application:

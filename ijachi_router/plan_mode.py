@@ -103,6 +103,7 @@ class PlanModePlanner:
                 system_prompt=_PLAN_SYSTEM_PROMPT,
                 priority="quality",
                 max_tokens=4096,
+                timeout=10,
             )
             plan_text = res.text
         except Exception as exc:
@@ -180,6 +181,7 @@ class PlanModePlanner:
                 system_prompt=_AGENTS_MD_PROMPT,
                 priority="quality",
                 max_tokens=4096,
+                timeout=10,
             )
             content = res.text
         except Exception as exc:

@@ -37,6 +37,8 @@ def _stream_openai_compatible(
     client_kwargs: dict = {"api_key": api_key}
     if base_url:
         client_kwargs["base_url"] = base_url
+    if "timeout" in kwargs:
+        client_kwargs["timeout"] = kwargs["timeout"]
     client = openai.OpenAI(**client_kwargs)
 
     system_prompt = kwargs.get("system_prompt")

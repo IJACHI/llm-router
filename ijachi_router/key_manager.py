@@ -15,11 +15,14 @@ from ijachi_router.providers.base import ProviderError
 
 _KEYS_FILE = Path.home() / ".ijachi-llmr" / "keys.env"
 
+_PROVIDER_ALIASES = {
+    "google": "gemini",
+}
+
 _PROVIDER_ENV_VARS = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
-    "google": "GEMINI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "groq": "GROQ_API_KEY",
     "mistral": "MISTRAL_API_KEY",
@@ -79,6 +82,7 @@ class KeyManager:
     def set_key(self, provider: str, key_value: str) -> str:
         """Set and save an API key for a provider."""
         provider_clean = provider.lower().strip()
+        provider_clean = _PROVIDER_ALIASES.get(provider_clean, provider_clean)
 
         # Local Ollama needs no API key — OLLAMA_HOST is a server setting, not a secret
         if provider_clean == "local":
@@ -110,7 +114,9 @@ class KeyManager:
     def get_key(self, provider: str) -> str | None:
         """Retrieve API key for provider."""
         self.load_keys_into_env()
-        env_var = _PROVIDER_ENV_VARS.get(provider.lower().strip(), f"{provider.upper()}_API_KEY")
+        provider_clean = provider.lower().strip()
+        provider_clean = _PROVIDER_ALIASES.get(provider_clean, provider_clean)
+        env_var = _PROVIDER_ENV_VARS.get(provider_clean, f"{provider_clean.upper()}_API_KEY")
         return os.getenv(env_var)
 
     def list_keys(self) -> dict[str, str]:
@@ -126,6 +132,7 @@ class KeyManager:
     def clear_key(self, provider: str) -> str:
         """Remove API key for a provider."""
         provider_clean = provider.lower().strip()
+        provider_clean = _PROVIDER_ALIASES.get(provider_clean, provider_clean)
         env_var = _PROVIDER_ENV_VARS.get(provider_clean, f"{provider_clean.upper()}_API_KEY")
 
         if env_var in os.environ:

@@ -62,7 +62,7 @@ def _notify(title: str, message: str) -> None:
             subprocess.run(
                 ["osascript", "-e",
                  f'display notification "{message}" with title "{title}"'],
-                timeout=3, capture_output=True,
+                timeout=1, capture_output=True,
             )
         except Exception:
             pass
@@ -71,7 +71,7 @@ def _notify(title: str, message: str) -> None:
         try:
             subprocess.run(
                 ["notify-send", title, message],
-                timeout=3, capture_output=True,
+                timeout=1, capture_output=True,
             )
         except Exception:
             pass
@@ -401,7 +401,7 @@ class WorkspaceTools:
                 res += f"STDERR:\n{err[:2000]}\n"
             return res
         except subprocess.TimeoutExpired:
-            return "Error: Command timed out after 60 seconds."
+            return f"Error: Command timed out after {timeout} seconds."
         except Exception as e:
             return f"Error running command: {e}"
 
@@ -499,7 +499,7 @@ def _try_parse_json(candidate: str) -> dict | None:
     try:
         repaired = re.sub(
             r'("(?:[^"\\]|\\.)*")',
-            lambda m: m.group(0).replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"),
+            lambda m: m.group(0).replace("\n", "\\n").replace("\r", "\\r"),
             candidate,
         )
         data = json.loads(repaired, strict=False)
@@ -508,11 +508,28 @@ def _try_parse_json(candidate: str) -> dict | None:
     except Exception:
         pass
 
+    # Strategy 4: dirtyjson / repair library if present
+    try:
+        import dirtyjson  # type: ignore
+        data = dirtyjson.loads(candidate)
+        if isinstance(data, dict):
+            return dict(data)
+    except Exception:
+        pass
+
     return None
 
 
 def _extract_files_from_markdown(text: str) -> list[tuple[str, str]]:
-    """Extract (filepath, content) tuples from markdown responses containing code file blocks."""
+    """Extract code blocks with filename headers from markdown responses.
+
+    Matches patterns like:
+    - ``### file: path/to/file.ext`` followed by ```lang\ncode\n```
+    - ``**path/to/file.ext**`` followed by ```lang\ncode\n```
+    - ``File: `path/to/file.ext``` followed by ```lang\ncode\n```
+
+    Returns a list of (filepath, content) tuples.
+    """
     results: list[tuple[str, str]] = []
     if not text:
         return results
@@ -696,6 +713,7 @@ class AgenticRouter:
         context_manager: Any | None = None,
         permission_mode: str = "manual",
         timeout: int | None = None,
+        memory_dir: Path | str | None = None,
     ):
         self.formatter = CodeFormatter(
             style_guide=style_guide,
@@ -723,7 +741,7 @@ class AgenticRouter:
             self.ctx = context_manager
         else:
             from ijachi_router.context_manager import ContextManager
-            self.ctx = ContextManager(root_dir=self.tools.root_dir)
+            self.ctx = ContextManager(root_dir=self.tools.root_dir, memory_dir=memory_dir)
 
         # Load and prepare skill manager
         from ijachi_router.skill_manager import SkillManager

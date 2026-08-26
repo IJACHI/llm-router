@@ -23,8 +23,21 @@ def test_project_memory_lifecycle(tmp_path):
     assert mem2.turns[0].prompt == "How do I sort a list in Python?"
 
 
-def test_memory_token_compression(tmp_path):
+def test_memory_token_compression(tmp_path, monkeypatch):
     mem = ProjectMemory(root_dir=tmp_path, session_id="compress_test", memory_dir=tmp_path / "mem")
+
+    from ijachi_router.providers.base import GenerationResult
+    mock_res = GenerationResult(
+        text="- Configured architectural modules\n- Saved dependencies",
+        model="gpt-4o",
+        provider="openai",
+        cost_usd=0.0001,
+        latency_s=0.01,
+        input_tokens=50,
+        output_tokens=20,
+    )
+    import ijachi_router.core
+    monkeypatch.setattr("ijachi_router.core.route", lambda *args, **kwargs: mock_res)
 
     # Add long prompts to cross threshold
     for i in range(10):

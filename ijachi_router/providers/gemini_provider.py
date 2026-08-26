@@ -21,6 +21,7 @@ class GeminiProvider(Provider):
             client = openai.OpenAI(
                 api_key=api_key,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                timeout=kwargs.get("timeout", 30.0),
             )
             system_prompt = kwargs.get("system_prompt")
             messages = []

@@ -572,14 +572,6 @@ def chat_cmd(priority, model, style, accessibility, theme, vim, no_approval, max
                 if telemetry_summary:
                     ui_console.print(f"[dim]{telemetry_summary}[/dim]")
 
-                tool_call_dicts = [
-                    {
-                        "tool_name": tc.tool_name,
-                        "args": tc.args,
-                        "output": tc.output,
-                    }
-                    for tc in tool_calls
-                ]
                 ui_console.print(
                     chat_renderer.render_assistant_response(
                         result.final_text,
@@ -588,8 +580,6 @@ def chat_cmd(priority, model, style, accessibility, theme, vim, no_approval, max
                         cost_usd=result.total_cost_usd,
                     )
                 )
-                if tool_call_dicts:
-                    ui_console.print(chat_renderer.render_tool_calls(tool_call_dicts))
 
         except ProviderError as exc:
             if acc:

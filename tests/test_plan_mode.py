@@ -57,8 +57,20 @@ def test_confirm_plan_accessible_no(monkeypatch, planner):
     assert preview.approved is False
 
 
-def test_generate_agents_md_writes_file(tmp_path):
+def test_generate_agents_md_writes_file(tmp_path, monkeypatch):
     """generate_agents_md writes an AGENTS.md file in the workspace root."""
+    from ijachi_router.providers.base import GenerationResult
+    mock_res = GenerationResult(
+        text="# Project Context\n\nArchitecture details.",
+        model="gpt-4o",
+        provider="openai",
+        cost_usd=0.0001,
+        latency_s=0.01,
+        input_tokens=50,
+        output_tokens=20,
+    )
+    monkeypatch.setattr("ijachi_router.plan_mode.route", lambda *args, **kwargs: mock_res)
+
     planner = PlanModePlanner(workspace_root=tmp_path, accessible=True)
     path = planner.generate_agents_md("A small test project.")
     assert path == tmp_path / "AGENTS.md"

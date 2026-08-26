@@ -67,6 +67,7 @@ def test_agentic_router_loop(monkeypatch, temp_workspace):
         require_approval=False,
         auto_format=False,  # Disable formatting to keep mock output predictable
         require_comments=False,
+        memory_dir=temp_workspace / "mem",
     )
 
     step1_json = json.dumps({
