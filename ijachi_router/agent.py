@@ -520,6 +520,19 @@ def _try_parse_json(candidate: str) -> dict | None:
     return None
 
 
+def _strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> and <thought>...</thought> reasoning blocks.
+
+    Used to clean outputs from reasoning models (e.g. DeepSeek-R1, QwQ) so raw
+    chain-of-thought tokens do not bloat prompt context or break tool parsing.
+    """
+    if not text:
+        return ""
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<thought>[\s\S]*?</thought>", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def _extract_files_from_markdown(text: str) -> list[tuple[str, str]]:
     """Extract code blocks with filename headers from markdown responses.
 
@@ -531,6 +544,7 @@ def _extract_files_from_markdown(text: str) -> list[tuple[str, str]]:
     Returns a list of (filepath, content) tuples.
     """
     results: list[tuple[str, str]] = []
+    text = _strip_think_tags(text)
     if not text:
         return results
 
@@ -564,7 +578,7 @@ def _extract_files_from_markdown(text: str) -> list[tuple[str, str]]:
 
 def _extract_tool_call(response_text: str) -> dict | None:
     """Extract tool call or final_answer dictionary from LLM response."""
-    text = response_text.strip()
+    text = _strip_think_tags(response_text)
     if not text:
         return None
 
@@ -639,9 +653,10 @@ _SYSTEM_PROMPT = """You are ijachi-code, an autonomous agentic pair programmer e
    - You MUST output JSON tool calls to create, edit, and run code directly on the user's machine.
    - Your VERY FIRST response must be a JSON tool call (`write_file` or `list_dir`).
 
-2. AUTONOMOUS FILE CREATION:
+2. AUTONOMOUS FILE CREATION & SCAFFOLDING:
    - When asked to build an application or website (e.g. MedFrontier, Flask apps, React components), begin IMMEDIATELY by calling `write_file` for each file.
-   - Create one file at a time using `write_file` until the full project is completely built and functional.
+   - Proceed systematically writing all necessary models, routes, templates, static assets, and app entrypoints.
+   - Do NOT stop midway or ask the user "Would you like me to continue?". Systematically write all required files and only then emit `final_answer`.
 
 3. WORKSPACE AWARENESS ON STATUS QUERIES:
    - When the user asks status questions (e.g. "are you done?", "what is the status?", "how do I see/run the app?"):
@@ -774,10 +789,14 @@ class AgenticRouter:
         """
         conversation_history: list[dict[str, str]] = []
         steps: list[AgentStep] = []
+        step_records: list[str] = []
         total_cost = 0.0
 
-        # Reset task-level approval cache for each new user run
-        self.tools.auto_approve_task = False
+        # Reset or auto-enable task-level approval cache
+        if self.permission_mode in ("accept-edits", "auto") or not self.require_approval:
+            self.tools.auto_approve_task = True
+        else:
+            self.tools.auto_approve_task = False
 
         # Plan mode: generate and confirm plan before any code changes
         if is_plan_mode(self.permission_mode):
@@ -856,7 +875,7 @@ class AgenticRouter:
                 )
                 self.checklist.add_tokens(res.input_tokens, res.output_tokens)
 
-                response_text = res.text.strip()
+                response_text = _strip_think_tags(res.text.strip())
 
                 # Parse JSON tool call using robust multi-layer extractor
                 parsed = _extract_tool_call(response_text)
@@ -1042,7 +1061,20 @@ class AgenticRouter:
                 )
                 steps.append(step_record)
 
-                current_prompt += f"\nAssistant: {response_text}\nTool Output ({tool_name}):\n{tool_output}\nContinue task."
+                # Format concise tool output and arguments for prompt history to prevent token explosion
+                output_summary = tool_output if len(tool_output) <= 1200 else tool_output[:1200] + "\n... [output truncated for brevity]"
+                arg_summary = ", ".join(f"{k}={v!r}" if not isinstance(v, str) or len(v) <= 40 else f"{k}=... ({len(v)} chars)" for k, v in (args or {}).items())
+                step_records.append(f"Step {step_idx}: Assistant called {tool_name}({arg_summary})\nOutput: {output_summary}")
+
+                # Bound context: keep system prompt + original task + rolling progress
+                if len(step_records) > 3:
+                    older_steps = "\n".join(f"- {s.splitlines()[0]}" for s in step_records[:-3])
+                    recent_steps = "\n\n".join(step_records[-3:])
+                    history_block = f"Completed Earlier Steps:\n{older_steps}\n\nRecent Actions & Tool Results:\n{recent_steps}"
+                else:
+                    history_block = "\n\n".join(step_records)
+
+                current_prompt = f"{full_system_prompt}\n\nTask: {task}\n\nExecution Progress:\n{history_block}\n\nContinue executing the task until completed. When finished, emit final_answer."
 
             final_exit_text = "Agentic loop reached maximum steps."
             self.checklist.complete(loop_idx)

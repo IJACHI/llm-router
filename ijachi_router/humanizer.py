@@ -187,6 +187,10 @@ def humanize(text: str, mode: HumanizeMode = "light", strip_statistical: bool = 
     if mode == "off":
         return text
 
+    # Strip raw chain-of-thought tags (DeepSeek-R1, QwQ, etc.)
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"<thought>[\s\S]*?</thought>", "", text, flags=re.IGNORECASE).strip()
+
     is_code = _is_code_block(text)
 
     # -- Both light and full: typography normalization (always safe) ----------

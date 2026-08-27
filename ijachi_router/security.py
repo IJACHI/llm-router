@@ -153,6 +153,28 @@ _SECURITY_RULES: list[dict] = [
 ]
 
 
+_PLACEHOLDER_SECRETS = {
+    "your-secret-key", "your_secret_key", "dev-secret", "dev-key", "dev-secret-key",
+    "change-in-production", "change_in_production", "admin123", "password123",
+    "example", "placeholder", "dummy", "test-key", "test-secret", "default-key",
+    "secret-key-here", "xxx", "mysecret", "my-secret-key", "password", "123456"
+}
+
+
+def _is_placeholder_secret(line: str) -> bool:
+    """Return True if the secret value assigned in line is an env getter or boilerplate placeholder."""
+    line_lower = line.lower()
+    if "os.environ" in line_lower or "getenv" in line_lower:
+        return True
+    val_match = re.search(r'=\s*["\']([^"\']+)["\']', line)
+    if val_match:
+        val = val_match.group(1).lower().strip()
+        if val in _PLACEHOLDER_SECRETS:
+            return True
+        return any(p in val for p in ("dev-", "placeholder", "example", "change-in", "your-secret", "your_secret", "dummy", "test-key", "test-secret"))
+    return False
+
+
 def scan(code: str) -> SecurityReport:
     """Scan code for security vulnerabilities and auto-remediate where possible.
 
@@ -169,6 +191,8 @@ def scan(code: str) -> SecurityReport:
         pattern = re.compile(rule["pattern"])
         for i, line in enumerate(lines):
             if pattern.search(line):
+                if rule["id"] == "HARDCODED_SECRET" and _is_placeholder_secret(line):
+                    continue
                 fix_fn = rule.get("fix")
                 remediated = fix_fn(line) if fix_fn else None
                 issue = SecurityIssue(
