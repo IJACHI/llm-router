@@ -1,16 +1,30 @@
 """Rich Interactive REPL for ijachi-code.
 
-Uses prompt_toolkit for a best-in-class terminal input experience:
-- ↑/↓ arrow keys to cycle through command history
-- Persistent history file (~/.ijachi-llmr/history.txt) — survives across sessions
-- Visually distinct bordered input area at the bottom of the terminal
-- Slash-command autocompletion as you type
-- Bottom toolbar showing: git branch · session cost · model · auto/plan flags
-- Rich bordered response panels with Markdown rendering above the input field
+Architecture:
+- Rich prints all conversation output (AI panels, user bubbles, separators)
+- prompt_toolkit Application renders a FRAMED input box at the bottom
+  (actual Unicode border drawn around the typing area, with ↑↓ history)
+- Each "round-trip" exits the Application, prints the response via Rich,
+  then reopens the Application for the next input — clean and reliable.
+
+Visual layout:
+  ┌── YOU ───────────────────────────────────────────────┐
+  │  build me a FastAPI auth service                     │
+  └──────────────────────────────────────────────────────┘
+
+  ╔══ 🤖 IJACHI · gemini-3.6-flash · $0.0003 ══════════╗
+  ║  Here's the FastAPI service:                         ║
+  ║  ...                                                 ║
+  ╚══════════════════════════════════════════════════════╝
+
+  ╭─ ✍  Type a message ─────────────────────────────────╮
+  │  █                                                   │
+  ╰─ ⎇ main · 💰 $0.0003 · ↑↓ history · Tab autocomplete╯
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,21 +33,30 @@ from typing import Callable
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.text import Text
 
-# prompt_toolkit: powers history + styled input field
-from prompt_toolkit import PromptSession
+from prompt_toolkit import Application
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.styles import Style
+from prompt_toolkit.widgets import Frame
 
 console = Console()
 
 _HISTORY_FILE = Path.home() / ".ijachi-llmr" / "history.txt"
 _HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+# Shared FileHistory instance so ↑↓ works across the session
+_FILE_HISTORY = FileHistory(str(_HISTORY_FILE))
+
 
 # ---------------------------------------------------------------------------
 # Slash command registry
@@ -61,7 +84,6 @@ def _register(name: str, description: str):
 # ---------------------------------------------------------------------------
 
 def _git_info() -> tuple[str, int]:
-    """Return (branch_name, dirty_file_count)."""
     try:
         branch = subprocess.check_output(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -76,25 +98,141 @@ def _git_info() -> tuple[str, int]:
         return "", 0
 
 
-def _render_response(text: str, model_used: str, cost_usd: float) -> None:
-    """Render a rich-formatted response panel above the input field."""
-    header = Text()
-    header.append("🤖 ", style="bold")
-    header.append(model_used, style="bold cyan")
-    header.append(f"  💰 ${cost_usd:.4f}", style="dim green")
+# ---------------------------------------------------------------------------
+# Message rendering (Rich panels)
+# ---------------------------------------------------------------------------
 
+def _render_user_message(text: str) -> None:
+    """Render a clearly styled 'YOU' bubble."""
+    console.print(Panel(
+        f"[bold white]{text}[/bold white]",
+        title="[bold dim white]▸ YOU[/bold dim white]",
+        title_align="left",
+        border_style="dim white",
+        padding=(0, 2),
+    ))
+
+
+def _render_ai_response(text: str, model_used: str, cost_usd: float) -> None:
+    """Render a distinctly styled IJACHI response panel."""
     try:
         content = Markdown(text)
     except Exception:
         content = Text(text)
 
+    title = Text()
+    title.append("🤖  IJACHI", style="bold cyan")
+    title.append("  ·  ", style="dim")
+    title.append(model_used, style="cyan")
+    title.append("  ·  ", style="dim")
+    title.append(f"${cost_usd:.4f}", style="bold green")
+
     console.print(Panel(
         content,
-        title=header,
-        border_style="bright_blue",
-        padding=(0, 1),
+        title=title,
+        title_align="left",
+        border_style="bright_cyan",
+        style="on grey7",          # dark background makes AI panel clearly distinct
+        padding=(1, 2),
     ))
-    console.print()  # breathing room before input field redraws
+    console.print()
+
+
+# ---------------------------------------------------------------------------
+# Framed input box (prompt_toolkit Application)
+# ---------------------------------------------------------------------------
+
+_INPUT_STYLE = Style.from_dict({
+    # Frame border
+    "frame":                   "fg:#00e5ff",
+    "frame.border":            "fg:#00e5ff",
+    "frame.label":             "fg:#00e5ff bold",
+    # Input text inside frame
+    "":                        "fg:#ffffff bg:#0d1117",
+    # Bottom toolbar
+    "toolbar":                 "bg:#0d1117 fg:#4a9eff",
+    "toolbar.key":             "bg:#0d1117 fg:#00e5ff bold",
+})
+
+
+def _get_completer() -> WordCompleter:
+    return WordCompleter(
+        list(_SLASH_COMMANDS.keys()) + ["exit", "quit"],
+        sentence=True,
+    )
+
+
+def _prompt_input(toolbar_fn) -> str | None:
+    """
+    Open a bordered prompt_toolkit Application for one round of input.
+    Returns the submitted text, or None on Ctrl+C / Ctrl+D.
+    """
+    submitted: list[str] = []
+    cancelled: list[bool] = []
+
+    buf = Buffer(
+        history=_FILE_HISTORY,
+        completer=_get_completer(),
+        complete_while_typing=True,
+        auto_suggest=AutoSuggestFromHistory(),
+        name="main_input",
+    )
+
+    kb = KeyBindings()
+
+    @kb.add("enter")
+    def _submit(event):
+        text = buf.text.strip()
+        submitted.append(text)
+        event.app.exit()
+
+    @kb.add("c-c")
+    def _interrupt(event):
+        # Cancel current line without exiting the session
+        cancelled.append(True)
+        event.app.exit()
+
+    @kb.add("c-d")
+    def _eof(event):
+        submitted.append("__EXIT__")
+        event.app.exit()
+
+    @kb.add("c-l")
+    def _clear(event):
+        os.system("clear")
+        event.app.renderer.reset()
+
+    layout = Layout(
+        HSplit([
+            Frame(
+                Window(
+                    BufferControl(buffer=buf),
+                    height=1,
+                    get_line_prefix=lambda i, wrap_count: "  ",
+                ),
+                title=" ✍  Type a message ",
+                style="class:frame",
+            ),
+            Window(
+                FormattedTextControl(toolbar_fn),
+                height=1,
+                style="class:toolbar",
+            ),
+        ])
+    )
+
+    app = Application(
+        layout=layout,
+        key_bindings=kb,
+        style=_INPUT_STYLE,
+        full_screen=False,
+        mouse_support=False,
+    )
+    app.run()
+
+    if cancelled:
+        return None  # Ctrl+C → caller loops again
+    return submitted[0] if submitted else None
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +242,7 @@ def _render_response(text: str, model_used: str, cost_usd: float) -> None:
 @_register("/help", "Show all available commands")
 def _cmd_help(repl: "RichREPL", args: str) -> bool:
     from rich.table import Table
-    table = Table(title="📖 IJACHI CODE Commands", border_style="bright_blue", show_header=True)
+    table = Table(title="📖 IJACHI Commands", border_style="bright_blue", show_header=True)
     table.add_column("Command", style="bold cyan")
     table.add_column("Description", style="white")
     for cmd in _SLASH_COMMANDS.values():
@@ -119,7 +257,8 @@ def _cmd_help(repl: "RichREPL", args: str) -> bool:
 def _cmd_clear(repl: "RichREPL", args: str) -> bool:
     repl.history_ctx.clear()
     repl.session_cost = 0.0
-    console.print("[bold green]✓ Context cleared.[/bold green] Session cost reset to $0.00\n")
+    os.system("clear")
+    console.print("[bold green]✓ Context cleared.[/bold green]  Session cost reset to $0.00\n")
     return False
 
 
@@ -127,15 +266,12 @@ def _cmd_clear(repl: "RichREPL", args: str) -> bool:
 def _cmd_status(repl: "RichREPL", args: str) -> bool:
     from ijachi_router.health import check_providers_quick, render_provider_card
     from ijachi_router.config import load_config
-    cfg = load_config()
-    statuses = check_providers_quick(cfg)
-    render_provider_card(statuses)
+    render_provider_card(check_providers_quick(load_config()))
     branch, dirty = _git_info()
     if branch:
         dirty_str = f" ({dirty} modified)" if dirty else ""
-        console.print(f"[bold cyan]⎇ Branch:[/bold cyan] {branch}{dirty_str}")
-    console.print(f"[bold cyan]💰 Session cost:[/bold cyan] ${repl.session_cost:.4f}")
-    console.print(f"[bold cyan]💬 Context messages:[/bold cyan] {len(repl.history_ctx)}\n")
+        console.print(f"[bold cyan]⎇  Branch:[/bold cyan] {branch}{dirty_str}")
+    console.print(f"[bold cyan]💰 Session cost:[/bold cyan] ${repl.session_cost:.4f}\n")
     return False
 
 
@@ -143,8 +279,7 @@ def _cmd_status(repl: "RichREPL", args: str) -> bool:
 def _cmd_providers(repl: "RichREPL", args: str) -> bool:
     from ijachi_router.health import check_providers_quick, render_provider_card
     from ijachi_router.config import load_config
-    cfg = load_config()
-    render_provider_card(check_providers_quick(cfg))
+    render_provider_card(check_providers_quick(load_config()))
     return False
 
 
@@ -164,15 +299,14 @@ def _cmd_plan(repl: "RichREPL", args: str) -> bool:
     return False
 
 
-@_register("/memory", "Show or clear persistent session memory  (use: /memory clear)")
+@_register("/memory", "View or clear session memory  (/memory clear to wipe)")
 def _cmd_memory(repl: "RichREPL", args: str) -> bool:
     from ijachi_router.agent import load_memory, save_memory
-    workspace_id = str(Path.cwd())
     if args.strip() == "clear":
-        save_memory(workspace_id, "")
+        save_memory(str(Path.cwd()), "")
         console.print("[bold green]✓ Memory cleared.[/bold green]\n")
     else:
-        mem = load_memory(workspace_id)
+        mem = load_memory(str(Path.cwd()))
         if mem:
             console.print(Panel(mem, title="[bold cyan]📝 Session Memory[/bold cyan]", border_style="cyan"))
         else:
@@ -181,7 +315,7 @@ def _cmd_memory(repl: "RichREPL", args: str) -> bool:
     return False
 
 
-@_register("/compact", "Manually compress conversation history to save context")
+@_register("/compact", "Compress conversation history to save context tokens")
 def _cmd_compact(repl: "RichREPL", args: str) -> bool:
     if not repl.history_ctx:
         console.print("[dim]Nothing to compact.[/dim]\n")
@@ -196,37 +330,8 @@ def _cmd_compact(repl: "RichREPL", args: str) -> bool:
     summary = res.text.strip()
     repl.history_ctx.clear()
     repl.history_ctx.append({"role": "system", "content": f"[Compacted context]\n{summary}"})
-    console.print(f"[bold green]✓ Compacted {len(full)} chars → {len(summary)} chars[/bold green]\n")
+    console.print(f"[bold green]✓ Compacted {len(full):,} chars → {len(summary):,} chars[/bold green]\n")
     return False
-
-
-# ---------------------------------------------------------------------------
-# prompt_toolkit styling
-# ---------------------------------------------------------------------------
-
-_PT_STYLE = Style.from_dict({
-    # Bottom toolbar
-    "bottom-toolbar":           "bg:#1a1a2e fg:#7ecfff",
-    "bottom-toolbar.text":      "bg:#1a1a2e fg:#7ecfff",
-    "bottom-toolbar.git":       "bg:#1a1a2e fg:#4fc3f7 bold",
-    "bottom-toolbar.cost":      "bg:#1a1a2e fg:#69ff47 bold",
-    "bottom-toolbar.flag":      "bg:#1a1a2e fg:#ffd700 bold",
-    "bottom-toolbar.sep":       "bg:#1a1a2e fg:#444466",
-    # Prompt itself
-    "prompt":                   "fg:#00e5ff bold",
-    "prompt.arrow":             "fg:#444466",
-    # Input area box line
-    "rprompt":                  "fg:#444466",
-})
-
-
-def _make_completer() -> WordCompleter:
-    """Autocomplete for slash commands."""
-    return WordCompleter(
-        list(_SLASH_COMMANDS.keys()) + ["exit", "quit"],
-        sentence=True,
-        pattern=None,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -235,80 +340,37 @@ def _make_completer() -> WordCompleter:
 
 @dataclass
 class RichREPL:
-    """prompt_toolkit powered interactive REPL for ijachi-code."""
+    """
+    ijachi-code interactive session.
+    Rich handles output. prompt_toolkit Application handles the framed input box.
+    """
 
     priority: str = "balanced"
     plan_mode: bool = False
     auto_approve: bool = False
-    history_ctx: list[dict] = field(default_factory=list)   # in-session message context
+    history_ctx: list[dict] = field(default_factory=list)
     session_cost: float = 0.0
 
-    # ------------------------------------------------------------------ #
-    # Bottom toolbar (rendered by prompt_toolkit on every keystroke)
-    # ------------------------------------------------------------------ #
-
-    def _toolbar(self) -> HTML:
+    def _toolbar_text(self) -> HTML:
+        """Bottom toolbar shown inside the input frame."""
         branch, dirty = _git_info()
-        git_part = f"⎇ {branch}" if branch else ""
-        if dirty:
-            git_part += f" ({dirty}✎)"
-
-        cost_part = f"💰 ${self.session_cost:.4f}"
-        flags = []
-        if self.auto_approve:
-            flags.append("AUTO")
-        if self.plan_mode:
-            flags.append("PLAN")
-        flag_part = " · ".join(flags)
-
-        parts = [p for p in [git_part, cost_part, flag_part] if p]
-        toolbar_text = "  │  ".join(parts)
-
-        return HTML(
-            f'<bottom-toolbar>'
-            f'  <b>⚡ IJACHI</b>  <sep>│</sep>  {toolbar_text}'
-            f'  <sep>  [/help for commands]</sep>'
-            f'</bottom-toolbar>'
-        )
-
-    # ------------------------------------------------------------------ #
-    # prompt_toolkit session factory
-    # ------------------------------------------------------------------ #
-
-    def _make_session(self) -> PromptSession:
-        kb = KeyBindings()
-
-        @kb.add("c-l")
-        def _clear_screen(event):
-            """Ctrl+L clears the terminal screen."""
-            event.app.renderer.reset()
-            import os
-            os.system("clear")
-
-        return PromptSession(
-            history=FileHistory(str(_HISTORY_FILE)),
-            auto_suggest=AutoSuggestFromHistory(),
-            completer=_make_completer(),
-            complete_while_typing=True,
-            style=_PT_STYLE,
-            bottom_toolbar=self._toolbar,
-            key_bindings=kb,
-            mouse_support=False,
-            wrap_lines=True,
-        )
-
-    # ------------------------------------------------------------------ #
-    # Routing helpers
-    # ------------------------------------------------------------------ #
+        git_str = f"⎇ {branch}" + (f" ({dirty}✎)" if dirty else "")  if branch else ""
+        cost_str = f"💰 ${self.session_cost:.4f}"
+        flags = "  AUTO" if self.auto_approve else ""
+        flags += "  PLAN" if self.plan_mode else ""
+        hint = "↑↓ history · Tab complete · Ctrl+C cancel · Ctrl+D exit"
+        parts = [p for p in [git_str, cost_str, flags] if p]
+        left = "  ⚡ IJACHI  │  " + "  ·  ".join(parts) if parts else "  ⚡ IJACHI"
+        right = f"  {hint}  "
+        return HTML(f"{left}{right}")
 
     def _is_agentic_task(self, text: str) -> bool:
-        agentic_keywords = [
+        keywords = [
             "build", "create", "write", "edit", "fix", "refactor", "implement",
             "add", "remove", "delete", "read", "open", "run", "test", "deploy",
             "install", "scaffold", "generate", "update", "modify",
         ]
-        lower = text.lower()
-        return any(kw in lower for kw in agentic_keywords) and len(text) > 30
+        return any(kw in text.lower() for kw in keywords) and len(text) > 30
 
     def _run_agentic(self, task: str) -> None:
         from ijachi_router.agent import AgenticRouter, save_memory
@@ -330,9 +392,10 @@ class RichREPL:
                 console.print("[dim]Plan rejected. Task cancelled.[/dim]\n")
                 return
 
+        console.print("[dim]Running agentic task...[/dim]")
         result = agent.run(task)
         self.session_cost += result.total_cost_usd
-        _render_response(
+        _render_ai_response(
             result.final_text,
             model_used=f"agentic/{self.priority}",
             cost_usd=result.total_cost_usd,
@@ -341,24 +404,20 @@ class RichREPL:
 
     def _run_simple(self, prompt: str) -> None:
         from ijachi_router.core import route
+        console.print("[dim]Routing...[/dim]")
         res = route(prompt, priority=self.priority)
         self.session_cost += res.cost_usd
-        _render_response(res.text, model_used=res.model_used, cost_usd=res.cost_usd)
-
-    # ------------------------------------------------------------------ #
-    # Main session loop
-    # ------------------------------------------------------------------ #
+        _render_ai_response(res.text, model_used=res.model_used, cost_usd=res.cost_usd)
 
     def start(self) -> None:
         """Start the interactive session."""
-        # Provider health card at startup
         from ijachi_router.health import check_providers_quick, render_provider_card
         from ijachi_router.config import load_config
         from ijachi_router.agent import load_memory
 
+        # --- Startup splash ---
         render_provider_card(check_providers_quick(load_config()))
 
-        # Load workspace memory
         mem = load_memory(str(Path.cwd()))
         if mem:
             console.print(Panel(
@@ -370,31 +429,25 @@ class RichREPL:
             console.print()
 
         console.print(
-            "[bold cyan]💬 ijachi-code Interactive Session[/bold cyan]  "
-            "[dim]↑↓ history · Tab autocomplete · Ctrl+L clear screen · [bold]/help[/bold] for commands[/dim]\n"
+            "[bold cyan]💬 ijachi-code[/bold cyan]  "
+            "[dim]Type a message below — Ctrl+C to cancel input · Ctrl+D to quit[/dim]\n"
         )
 
-        session = self._make_session()
-
+        # --- Main loop ---
         while True:
-            try:
-                # Prompt: styled chevron with a clear visual input field
-                user_input = session.prompt(
-                    HTML('<prompt><b>❯ ijachi</b></prompt> '),
-                    style=_PT_STYLE,
-                    bottom_toolbar=self._toolbar,
-                    rprompt=HTML('<rprompt>⏎ send</rprompt>'),
-                ).strip()
+            user_input = _prompt_input(self._toolbar_text)
 
-            except KeyboardInterrupt:
-                # Ctrl+C cancels current input line — don't exit
+            # Ctrl+C → cancelled current line, loop again
+            if user_input is None:
                 console.print()
                 continue
-            except EOFError:
-                # Ctrl+D exits cleanly
+
+            # Ctrl+D → exit
+            if user_input == "__EXIT__":
                 console.print("\n[dim]Session ended. Goodbye! 👋[/dim]")
                 break
 
+            user_input = user_input.strip()
             if not user_input:
                 continue
 
@@ -403,9 +456,12 @@ class RichREPL:
                 console.print("[dim]Session ended. Goodbye! 👋[/dim]")
                 break
 
+            # Show user message as a styled panel
+            _render_user_message(user_input)
+
             # Slash commands
             if user_input.startswith("/"):
-                parts = user_input.strip().split(None, 1)
+                parts = user_input.split(None, 1)
                 cmd_name = parts[0].lower()
                 args = parts[1] if len(parts) > 1 else ""
                 if cmd_name in _SLASH_COMMANDS:
@@ -415,11 +471,11 @@ class RichREPL:
                 else:
                     console.print(
                         f"[bold red]Unknown command:[/bold red] {cmd_name}  "
-                        f"[dim]→ type [bold]/help[/bold] for all commands[/dim]\n"
+                        "[dim]→ type [bold]/help[/bold] for all commands[/dim]\n"
                     )
                 continue
 
-            # Route: agentic vs simple
+            # Route to AI
             try:
                 if self._is_agentic_task(user_input):
                     self._run_agentic(user_input)
