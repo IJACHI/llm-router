@@ -24,7 +24,7 @@ class GeminiProvider(Provider):
         resp = client.chat.completions.create(
             model=self.model_id,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=kwargs.get("max_tokens", 1024),
+            max_tokens=kwargs.get("max_tokens", 4096),
         )
         text = resp.choices[0].message.content or ""
         in_tokens = resp.usage.prompt_tokens if resp.usage else 0

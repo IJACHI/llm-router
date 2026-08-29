@@ -93,6 +93,7 @@ def _rank_models(
 ) -> list[ModelConfig]:
     """Return available models sorted by score, best first."""
     scored: list[tuple[float, ModelConfig]] = []
+    has_remote = any(m.provider != "local" for m in config.available_models())
     for model in config.available_models():
         s = _score_model(
             model,
@@ -102,6 +103,8 @@ def _rank_models(
             config.max_cost_per_call,
         )
         if s is not None:
+            if has_remote and model.provider == "local" and config.priority != "cost":
+                s = -1.0
             scored.append((s, model))
 
     # Sort descending by score, then alphabetically by model_id for stability

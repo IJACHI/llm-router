@@ -112,8 +112,40 @@ _PROVIDER_ENV_KEYS: dict[str, str | None] = {
 
 
 
+def _load_env_keys() -> None:
+    """Load API keys from ~/.ijachi-llmr/keys.env or .env into os.environ if not set."""
+    keys_file = Path.home() / ".ijachi-llmr" / "keys.env"
+    if keys_file.exists():
+        try:
+            for line in keys_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k and not os.environ.get(k):
+                        os.environ[k] = v
+        except Exception:
+            pass
+
+    dotenv_path = Path.cwd() / ".env"
+    if dotenv_path.exists():
+        try:
+            for line in dotenv_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k and not os.environ.get(k):
+                        os.environ[k] = v
+        except Exception:
+            pass
+
+
 def _detect_available_providers(models: list[ModelConfig]) -> set[str]:
     """Return provider names that are usable based on env + model list."""
+    _load_env_keys()
     listed_providers = {m.provider for m in models}
     available: set[str] = set()
     for provider in listed_providers:
