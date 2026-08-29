@@ -30,20 +30,12 @@ dependencies = [
     "requests>=2.28",
     "click>=8.1",
     "rich>=13.0",
-    # Required by the majority of providers (OpenAI-compatible API layer)
-    "openai>=1.0",
-    # Required by the Anthropic provider
-    "anthropic>=0.25",
-    # Enhanced interactive terminal prompt (multi-line, history, autocomplete, Vi mode)
-    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
-# Keep these for backwards-compatibility (pinning to a specific version)
-openai    = ["openai>=1.0"]
 anthropic = ["anthropic>=0.25"]
-bedrock   = ["boto3>=1.28"]
-all       = ["anthropic>=0.25", "openai>=1.0", "boto3>=1.28"]
+openai    = ["openai>=1.0"]
+all       = ["anthropic>=0.25", "openai>=1.0"]
 dev       = [
     "pytest>=8.0",
     "pytest-mock>=3.12",
@@ -52,9 +44,8 @@ dev       = [
 ]
 
 [project.scripts]
-ijachi = "cli:code_main"
-ijachi-code = "cli:code_main"
 ijachi-router = "cli:main"
+ijachi-code = "cli:code_main"
 ijr = "cli:main"
 
 [project.urls]
@@ -70,7 +61,7 @@ include = ["ijachi_router*"]
 py-modules = ["cli"]
 
 [tool.setuptools.package-data]
-"ijachi_router" = ["../models.yaml", "../data/train_data.csv", "skills/builtin/**/*.md", "skills/builtin/**/*.yaml"]
+"ijachi_router" = ["../models.yaml", "../data/train_data.csv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

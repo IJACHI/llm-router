@@ -58,7 +58,6 @@ def test_update_catalog_caching(tmp_path, monkeypatch):
 
     ok, msg = update_catalog(force=True)
     assert ok
-    assert "Updated pricing for" in msg
-    assert "curated model" in msg
+    assert "Successfully updated" in msg
     assert test_cache_file.exists()
     assert get_cached_catalog_path() == test_cache_file

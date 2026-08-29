@@ -92,42 +92,11 @@ _OPTIMIZERS = {
     "mistral": _optimize_mistral,
     "together": _optimize_openai,
     "openrouter": _optimize_openai,
-    "moonshot": _optimize_openai,
-    "qwen": _optimize_openai,
-    "perplexity": _optimize_openai,
-    "cohere": _optimize_openai,
-    "cerebras": _optimize_openai,
-    "sambanova": _optimize_openai,
-    "fireworks": _optimize_openai,
-    "huggingface": _optimize_openai,
-    "custom": _optimize_openai,
-    "azure": _optimize_openai,
-    "bedrock": _optimize_anthropic,
 }
-
-
-def is_agentic_prompt(prompt: str) -> bool:
-    """Check if prompt contains structured agentic tool directives."""
-    indicators = (
-        "ijachi-code",
-        "write_file",
-        "read_file",
-        "edit_file",
-        "list_dir",
-        "grep_search",
-        "run_command",
-        "```json",
-        '"tool":',
-        "--- IJACHI CONTEXT & PERSISTENT MEMORY ---",
-    )
-    return any(ind in prompt for ind in indicators)
 
 
 def optimize_prompt(prompt: str, provider: str, category: str = "simple-qa") -> str:
     """Return an optimized version of *prompt* for *provider*."""
-    # Never mutate or append conversational suffixes to agentic/tool-calling prompts
-    if is_agentic_prompt(prompt):
-        return prompt
     optimizer = _OPTIMIZERS.get(provider)
     if optimizer is None:
         return prompt

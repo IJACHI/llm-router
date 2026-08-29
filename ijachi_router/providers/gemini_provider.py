@@ -1,5 +1,5 @@
 import os
-from ijachi_router.providers.base import Provider, ProviderError, _stream_openai_compatible
+from ijachi_router.providers.base import Provider, ProviderError
 
 
 class GeminiProvider(Provider):
@@ -17,52 +17,16 @@ class GeminiProvider(Provider):
                 "openai package not installed (required for Gemini API compatibility). Run: pip install openai"
             ) from e
 
-        try:
-            client = openai.OpenAI(
-                api_key=api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                timeout=kwargs.get("timeout", 30.0),
-            )
-            system_prompt = kwargs.get("system_prompt")
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-
-            resp = client.chat.completions.create(
-                model=self.model_id,
-                messages=messages,
-                max_tokens=kwargs.get("max_tokens", 8192),
-            )
-            text = resp.choices[0].message.content or ""
-            in_tokens = resp.usage.prompt_tokens if resp.usage else 0
-            out_tokens = resp.usage.completion_tokens if resp.usage else 0
-            return text, in_tokens, out_tokens
-        except Exception as err:
-            raise ProviderError(f"Gemini API call failed for model '{self.model_id}': {err}") from err
-
-    def _ping(self) -> None:
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            raise ProviderError("GEMINI_API_KEY or GOOGLE_API_KEY not set")
-        try:
-            import openai
-            client = openai.OpenAI(
-                api_key=api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            )
-            client.models.list()
-        except Exception as err:
-            raise ProviderError(f"Gemini connectivity check failed: {err}") from err
-
-    def _stream(self, prompt: str, **kwargs):
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            raise ProviderError("GEMINI_API_KEY or GOOGLE_API_KEY not set")
-        yield from _stream_openai_compatible(
-            api_key,
-            self.model_id,
-            prompt,
+        client = openai.OpenAI(
+            api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            **kwargs,
         )
+        resp = client.chat.completions.create(
+            model=self.model_id,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=kwargs.get("max_tokens", 1024),
+        )
+        text = resp.choices[0].message.content or ""
+        in_tokens = resp.usage.prompt_tokens if resp.usage else 0
+        out_tokens = resp.usage.completion_tokens if resp.usage else 0
+        return text, in_tokens, out_tokens

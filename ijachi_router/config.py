@@ -25,11 +25,6 @@ _REPO_ROOT = Path(__file__).parent.parent
 _DEFAULT_MODELS_YAML = _REPO_ROOT / "models.yaml"
 _USER_CONFIG_PATH = Path.home() / ".ijachi-llmr" / "config.yaml"
 
-
-def default_models_yaml_path() -> Path:
-    """Return the default bundled models.yaml path used by the router."""
-    return _DEFAULT_MODELS_YAML
-
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
@@ -73,25 +68,14 @@ class RouterConfig:
     max_cost_per_call: float | None = None
     available_providers: set[str] = field(default_factory=set)
 
-    # ── Style & Formatting ──────────────────────────────────────────────────
-    style_guide: str = "pep8"           # pep8 | google | black | airbnb | standard | prettier
-    auto_format: bool = True            # Run formatter after every write_file / edit_file
-    require_comments: bool = True       # Inject missing docstrings/JSDoc headers
-
-    # ── UI Preferences ──────────────────────────────────────────────────────
-    vim_mode: bool = False              # Enable Vi editing mode in the prompt
-    theme: str = "dark"                 # dark | light | ansi | accessible | auto
-    accessibility: bool = False         # Screen-reader mode (sequential labeled output)
+    # ── Derived helpers ─────────────────────────────────────────────────────
 
     def models_for_provider(self, provider: str) -> list[ModelConfig]:
         return [m for m in self.models if m.provider == provider]
 
     def available_models(self) -> list[ModelConfig]:
-        """Return only enabled models whose provider has a key configured."""
-        return [
-            m for m in self.models
-            if m.provider in self.available_providers and "disabled" not in m.tags
-        ]
+        """Return only models whose provider has a key configured."""
+        return [m for m in self.models if m.provider in self.available_providers]
 
     def models_for_category(self, category: str) -> list[ModelConfig]:
         """Return available models that have *category* in their tags."""
@@ -142,50 +126,6 @@ def _detect_available_providers(models: list[ModelConfig]) -> set[str]:
     return available
 
 
-def _discover_ollama_models() -> list[ModelConfig]:
-    """Query the local Ollama server and return ModelConfig for every installed model.
-
-    Returns an empty list (silently) if Ollama is not running or unreachable.
-    Cloud-routed models (size == 0) are included — Ollama routes them transparently.
-    """
-    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    if not host.startswith(("http://", "https://")):
-        host = f"http://{host}"
-    try:
-        import requests
-        resp = requests.get(f"{host}/api/tags", timeout=3)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        return []
-
-    discovered: list[ModelConfig] = []
-    for model in data.get("models", []):
-        name: str = model.get("name", "").strip()
-        if not name:
-            continue
-        # All local models can handle any task type
-        tags = ["simple-qa", "summarization", "creative", "code", "reasoning", "long-context", "math"]
-        size_bytes = model.get("size", 0) or 0
-        if size_bytes > 20_000_000_000:    # > 20 GB -> large/slow
-            speed_tier = "slow"
-        elif size_bytes < 3_000_000_000:   # < 3 GB -> small/fast
-            speed_tier = "fast"
-        else:
-            speed_tier = "medium"
-        discovered.append(ModelConfig(
-            provider="local",
-            model_id=name,
-            tags=tags,
-            input_per_1k=0.0,
-            output_per_1k=0.0,
-            max_context=131072,
-            speed_tier=speed_tier,
-        ))
-    return discovered
-
-
-
 # ---------------------------------------------------------------------------
 # Loaders
 # ---------------------------------------------------------------------------
@@ -213,39 +153,23 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
     """Load and return the merged RouterConfig.
 
     Args:
-        models_yaml: Override path to models.yaml. Defaults to the bundled
-                     curated catalog. The dynamic remote cache is only used
-                     when this argument points to it or when the environment
-                     variable ``IJACHI_USE_CACHED_CATALOG`` is set.
+        models_yaml: Override path to models.yaml. Defaults to dynamic cache
+                     or the bundled catalog in models.yaml.
 
     Returns:
         A fully populated RouterConfig.
     """
     if models_yaml:
         yaml_path = Path(models_yaml)
-    elif os.environ.get("IJACHI_USE_CACHED_CATALOG"):
+    else:
         try:
             from ijachi_router.catalog_updater import get_cached_catalog_path
             cached = get_cached_catalog_path()
             yaml_path = cached if cached else _DEFAULT_MODELS_YAML
         except Exception:
             yaml_path = _DEFAULT_MODELS_YAML
-    else:
-        yaml_path = _DEFAULT_MODELS_YAML
 
     models = _load_models(yaml_path)
-
-    # Auto-discover locally installed Ollama models and merge them in.
-    # Hardcoded catalog entries win (dedup by provider+model_id) so that
-    # any custom tags/pricing set in models.yaml are preserved.
-    ollama_models = _discover_ollama_models()
-    if ollama_models:
-        existing_ids = {(m.provider, m.model_id) for m in models}
-        for om in ollama_models:
-            if (om.provider, om.model_id) not in existing_ids:
-                models.append(om)
-        # Mark local as available since Ollama is reachable
-        # (will be picked up by _detect_available_providers via provider list)
 
     user = _load_user_config()
     priority = user.get("priority", "balanced")
@@ -256,20 +180,6 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
     if max_cost is not None:
         max_cost = float(max_cost)
 
-    style_guide = user.get("style_guide", "pep8")
-    auto_format = bool(user.get("auto_format", True))
-    require_comments = bool(user.get("require_comments", True))
-    vim_mode = bool(user.get("vim_mode", False))
-    theme = user.get("theme", "dark")
-    accessibility = bool(user.get("accessibility", False))
-
-    # Auto-load saved keys from ~/.ijachi-llmr/keys.env
-    try:
-        from ijachi_router.key_manager import KeyManager
-        KeyManager().load_keys_into_env()
-    except Exception:
-        pass
-
     available = _detect_available_providers(models)
 
     return RouterConfig(
@@ -277,11 +187,5 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
         priority=priority,
         max_cost_per_call=max_cost,
         available_providers=available,
-        style_guide=style_guide,
-        auto_format=auto_format,
-        require_comments=require_comments,
-        vim_mode=vim_mode,
-        theme=theme,
-        accessibility=accessibility,
     )
 

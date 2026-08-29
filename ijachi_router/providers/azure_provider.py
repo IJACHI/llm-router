@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from ijachi_router.providers.base import Provider, ProviderError, _messages_with_system_prompt
+from ijachi_router.providers.base import Provider, ProviderError
 
 
 class AzureOpenAIProvider(Provider):
@@ -34,7 +34,7 @@ class AzureOpenAIProvider(Provider):
             )
             resp = client.chat.completions.create(
                 model=self.model_id,
-                messages=_messages_with_system_prompt(prompt, **kwargs),
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=kwargs.get("max_tokens", 1024),
             )
             text = resp.choices[0].message.content or ""
@@ -43,48 +43,3 @@ class AzureOpenAIProvider(Provider):
             return text, in_tokens, out_tokens
         except Exception as err:
             raise ProviderError(f"Azure OpenAI call failed for deployment '{self.model_id}': {err}") from err
-
-    def _ping(self) -> None:
-        api_key = os.environ.get("AZURE_OPENAI_API_KEY")
-        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-        if not api_key or not endpoint:
-            raise ProviderError("AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT must be set")
-        try:
-            import openai
-            client = openai.AzureOpenAI(
-                api_key=api_key,
-                azure_endpoint=endpoint,
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
-            )
-            client.models.list()
-        except Exception as err:
-            raise ProviderError(f"Azure OpenAI connectivity check failed: {err}") from err
-
-    def _stream(self, prompt: str, **kwargs):
-        api_key = os.environ.get("AZURE_OPENAI_API_KEY")
-        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-        if not api_key or not endpoint:
-            raise ProviderError("AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT must be set")
-        try:
-            import openai
-            client = openai.AzureOpenAI(
-                api_key=api_key,
-                azure_endpoint=endpoint,
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
-            )
-            system_prompt = kwargs.get("system_prompt")
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            for chunk in client.chat.completions.create(
-                model=self.model_id,
-                messages=messages,
-                max_tokens=kwargs.get("max_tokens", 1024),
-                stream=True,
-            ):
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield delta
-        except Exception as err:
-            raise ProviderError(f"Azure OpenAI streaming failed: {err}") from err

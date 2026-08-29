@@ -2,129 +2,79 @@
   <img src="assets/logo.png" alt="ijachi-llm-router logo" width="160"/>
 </p>
 
-<h1 align="center">ijachi & ijachi-code</h1>
+<h1 align="center">ijachi-llm-router</h1>
 
 <p align="center">
-  <strong>One command. Best model. Zero watermarks. Enterprise security. Automatic fallback.</strong>
+  <strong>One prompt. Best model. Automatic fallback.</strong>
 </p>
 
-`ijachi` classifies your prompt, picks the cheapest model that can handle it well, rewrites it for that model's quirks, sanitizes AI watermarks, scans code for security flaws, and falls back automatically across 20 providers — all from a single command.
+`ijachi-llm-router` classifies your prompt, picks the cheapest model that can handle it well, rewrites it for that model's quirks, and falls back automatically if a provider is down — all in one simple command.
 
 ```
-$ ijachi
-╭─────────────────────── ✨ IJACHI AGENTIC PLATFORM ✨ ────────────────────────╮
-│          ⚡ One Prompt. Best Model. Zero Watermarks. OWASP Secured.          │
-╰───────────────── v1.0.0 • 20 Providers • 100% Test Coverage ─────────────────╯
+$ ijachi-router route "What is the capital of France?"
+Paris
 
-$ ijachi "Write a Python FastAPI web server with JWT auth"
-[model=claude-3-7-sonnet  cost=$0.0012  latency=0.8s  humanize=light]
+[model=gpt-4o-mini  cost=$0.0001  latency=0.6s]
 
-$ ijachi swarm "Build a task manager app in Python with SQLite"
-=== ArchitectAgent (claude-3-7-sonnet) ===
-Designed system architecture and API schema.
+$ ijachi-router route "Write a Python function to sort a list"
+def sort_list(lst):
+    return sorted(lst)
 
-=== DeveloperAgent (deepseek-reasoner) ===
-Implemented FastAPI endpoints and database models.
+[model=claude-haiku-4-5  cost=$0.0003  latency=0.8s]
 
-=== SecurityAgent (OWASP Scanner) ===
-✓ No security vulnerabilities found.
+$ ijachi-router stats
 
-=== QATesterAgent (gpt-4o-mini) ===
-Generated unit tests. 100% tests passing.
+ijachi-llm-router usage  42 calls · $0.0127 total · 1.24s avg latency
+
+╭────────────────────┬──────────┬───────┬───────────┬─────────────╮
+│ Model              │ Provider │ Calls │ Cost (USD)│ Avg Latency │
+├────────────────────┼──────────┼───────┼───────────┼─────────────┤
+│ gpt-4o-mini        │ openai   │    18 │   $0.0014 │      0.62s  │
+│ claude-haiku-4-5   │ anthropic│    14 │   $0.0028 │      0.84s  │
+│ claude-sonnet-4-5  │ anthropic│     7 │   $0.0075 │      2.10s  │
+│ llama3.2:3b        │ local    │     3 │   $0.0000 │      3.50s  │
+╰────────────────────┴──────────┴───────┴───────────┴─────────────╯
 ```
 
 ---
 
-## ⚡ Global Installation Options
+## Why?
 
-### Option 1: One-Line Remote Installer (Recommended for Any Laptop)
-Paste this single command into any macOS / Linux terminal:
+| Without ijachi-llm-router | With ijachi-llm-router |
+|---|---|
+| You hardcode one model for everything | Routes each prompt to the right model |
+| Simple questions cost as much as hard ones | Trivial prompts → cheap/fast model |
+| One provider outage = your app is down | Automatic fallback across 20 providers |
+| No visibility into spend | `ijachi-router stats` & Web Dashboard show cost |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/install.sh | bash
-```
+---
 
-### Option 2: Standard PyPI Package (`pip`)
-Install directly via `pip` from PyPI:
+## 60-second quickstart
 
 ```bash
 pip install ijachi-llm-router
+
+# Set at least one provider key (or run Ollama locally — no key needed)
+export ANTHROPIC_API_KEY=sk-ant-...
+# and/or
+export OPENAI_API_KEY=sk-...
+
+# Route your first prompt (use ijachi-router or short alias ijr)
+ijachi-router route "Explain quicksort in Python"
 ```
 
----
-
-## 🔄 Uninstall & Reinstall Guide
-
-### How to Uninstall Completely:
-To remove `ijachi`, its global shortcut binaries, and installation directories:
-
+**Zero-cost test with Ollama (no API keys needed):**
 ```bash
-# Method A: One-line remote uninstaller
-curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/uninstall.sh | bash
-
-# Method B: Local repo uninstaller
-./uninstall.sh
-
-# Method C: Standard pip uninstall
-pip uninstall -y ijachi-llm-router
-```
-
-### How to Reinstall:
-To reinstall anytime after uninstalling:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/install.sh | bash
-```
-
----
-
-## 🚀 Launching `ijachi`
-
-Once installed, simply type **`ijachi`** in any terminal window in any folder:
-
-```bash
-ijachi
-```
-
-**Set provider API keys interactively:**
-```bash
-ijachi setup
-```
-*(Displays a cyberpunk table of all 20 compatible providers with live `🟢 ACTIVE` / `⚪ LOCAL FREE` status badges).*
-
-**Zero-cost offline test with Ollama (no API keys needed):**
-```bash
+# Install Ollama from https://ollama.com, then:
 ollama pull llama3.2:3b
-ijachi "What is the speed of light?"
+ijachi-router route "What is the speed of light?"
 ```
 
 ---
 
-## 🛡️ Built-in Safety, Security & Humanization Engine
+## Supported providers & models
 
-Every response and file modification passes through a 4-stage safety pipeline:
-
-1. **🤐 AI Watermark Stripper & Humanizer ([`humanizer.py`](file:///Users/ijachi/Downloads/llm-router/ijachi_router/humanizer.py))**: Strips openers (`"Certainly!"`, `"As an AI..."`), closers (`"I hope this helps!"`), attribution comments (`# Generated by AI`), typography artifacts, and hedging. Supports `--humanize light` (default), `full`, or `off`.
-2. **🔬 Statistical Watermark Neutralizer ([`sanitizer.py`](file:///Users/ijachi/Downloads/llm-router/ijachi_router/sanitizer.py))**: Disrupts invisible SynthID $n$-gram token hash chains.
-3. **🔒 OWASP Security Hardening Scanner ([`security.py`](file:///Users/ijachi/Downloads/llm-router/ijachi_router/security.py))**: Scans code for SQL injection, hardcoded secrets, `eval()`, weak crypto (`MD5/SHA1`), and auto-fixes vulnerabilities.
-4. **🛡️ Zero-Regression Code Validator ([`validator.py`](file:///Users/ijachi/Downloads/llm-router/ijachi_router/validator.py))**: Validates syntax before writing to disk, ensuring generated code never breaks your codebase.
-
----
-
-## 🧠 Persistent Project Memory (70-90% Token Savings)
-
-`ijachi` maintains project state across CLI sessions (`~/.ijachi-llmr/memory/`). When interaction history exceeds ~1,200 tokens, it automatically compresses past turns into a **Lossless Project Digest**, sending a ~200-token digest instead of 20,000+ raw tokens on every prompt!
-
-```bash
-ijachi memory status  # View active turns and token cost savings
-ijachi memory clear   # Reset session memory
-```
-
----
-
-## Supported Providers & Models
-
-`ijachi` comes preconfigured out-of-the-box with **20 major LLM service providers** and **40+ top models** in [`models.yaml`](models.yaml).
+`ijachi-llm-router` comes preconfigured out-of-the-box with **20 major LLM service providers** and **40+ top models** in [`models.yaml`](models.yaml).
 
 | Provider | Model | Speed | Cost (in/out per 1K) | Best for |
 |---|---|---|---|---|
@@ -148,111 +98,276 @@ ijachi memory clear   # Reset session memory
 | OpenAI | `gpt-4o` | 🔄 medium | $0.0025 / $0.01 | code, reasoning, math |
 | Anthropic | `claude-3-7-sonnet` | ⚡ fast | $0.003 / $0.015 | code, reasoning, math |
 | Mistral AI | `codestral-latest` | ⚡ fast | $0.0003 / $0.0009 | code, refactoring |
+| Together AI | `Llama-3.3-70B-Turbo` | ⚡ fast | $0.00088 / $0.00088 | open source cloud |
+| OpenRouter | `openrouter/auto` | 🔄 medium | $0.001 / $0.002 | model aggregation |
+| Local (Ollama) | `llama3.2:3b` | ⚡ fast | **free** | simple-qa, summarization |
+
+> **Zero Setup**: Export your key (e.g. `export CEREBRAS_API_KEY=...` or `export AWS_ACCESS_KEY_ID=...`) to activate any provider.
+> **Auto-Updating Catalog**: Run `ijachi-router update-catalog` anytime to fetch dynamic pricing updates from remote model registries.
 
 ---
 
-## Complete CLI Command Reference
+## CLI reference
 
 ```bash
-# ---------------------------------------------------------
-# GLOBAL SHORTCUTS & LAUNCHERS
-# ---------------------------------------------------------
-ijachi                                                     # Launch interactive AI coding session
-ijachi setup                                               # Interactive multi-key setup wizard
-ijachi launcher                                            # Display provider status dashboard
+# Route a prompt (auto-selects best model)
+ijachi-router route "Your prompt here"
+# or short alias:
+ijr route "Your prompt here"
 
-# ---------------------------------------------------------
-# ROUTING & STREAMING
-# ---------------------------------------------------------
-ijachi "Explain quicksort in Python"                        # One-shot coding prompt
-ijachi "Write web scraper" --stream                        # Real-time token streaming
-ijachi route "Summarise doc" --priority cost               # Priority: cost | speed | quality
+# Override routing priority for one call
+ijachi-router route "Summarise this doc" --priority cost      # cheapest model wins
+ijachi-router route "Prove P ≠ NP" --priority quality         # strongest model wins
+ijachi-router route "What time is it?" --priority speed        # fastest model wins
 
-# ---------------------------------------------------------
-# AGENTIC WORKFLOWS
-# ---------------------------------------------------------
-ijachi agent "Refactor main.py and run pytest"             # Autonomous workspace task
-ijachi swarm "Build auth API with FastAPI"                 # 4-Agent Swarm (Architect/Dev/Security/QA)
-ijachi fix --command "pytest"                              # Auto-fixing test repair loop
-ijachi consensus "Write lock-free queue in C++"           # Multi-model peer-review code
-ijachi index                                               # Index workspace code symbols
-ijachi doc                                                 # Auto-generate ARCHITECTURE.md + Mermaid diagrams
-ijachi commit                                              # Conventional Commit + Git checkpoint
+# Cap cost per call (skips models above threshold)
+ijachi-router route "Explain neural nets" --max-cost 0.01
 
-# ---------------------------------------------------------
-# KEYS & MODEL MANAGEMENT
-# ---------------------------------------------------------
-ijachi keys list                                           # List configured API keys (masked)
-ijachi keys set anthropic "sk-ant-..."                     # Store key securely (~/.ijachi-llmr/keys.env)
-ijachi keys test                                           # Test live provider API connectivity
-ijachi models list                                         # List candidate models & pricing
-ijachi export-sdk --lang typescript                        # Export client SDK (typescript | go | rust)
+# Dedicated coding assistant mode
+ijachi-code "Write a Python script to sort a list"
 
-# ---------------------------------------------------------
-# SERVERS & DASHBOARD
-# ---------------------------------------------------------
-ijachi extension-server --port 8001                        # Start JSON-RPC/REST server for IDEs
-ijachi serve --port 8000                                   # Launch REST API server
-ijachi dashboard --port 8000                               # Open Web Telemetry Dashboard
+# [AGENTIC] Autonomous multi-step workspace task (reads/edits files, runs commands)
+ijachi-code agent "Refactor helper function in main.py and run pytest"
+
+# [AGENTIC] Interactive REPL terminal session with file modification approval prompts
+ijachi-code chat
+
+# 🔁 [KILLER FEATURE] Auto-Fixing Test Repair Loop (runs tests, captures traces, auto-fixes until 100% pass)
+ijachi-code fix --command "pytest"
+
+# ⚖️ [KILLER FEATURE] Multi-Model Consensus Peer Review (queries 2 top models & synthesizes peer-reviewed output)
+ijachi-code consensus "Write a thread-safe lock-free queue in C++"
+
+# 🗂️ [KILLER FEATURE] Workspace Symbol Indexer (scans & caches code symbols into symbols.json)
+ijachi-code index
+
+# 🛡️ [KILLER FEATURE] Git Safety Checkpoints & Conventional Commit Generator
+ijachi-code commit
+
+# Show spend + latency table for all recorded calls
+ijachi-router stats
+
+# See which providers are active (which API keys detected)
+ijachi-router providers
+
+# Fetch dynamic pricing & new model updates from remote registry
+ijachi-router update-catalog
+
+# Retrain the prompt classifier after editing data/train_data.csv
+ijachi-router train
+
+# [PRO] Launch background REST API Server
+ijachi-router serve --port 8000
+
+# [PRO] Open Interactive Web Telemetry Dashboard in browser
+ijachi-router dashboard --port 8000
+
+# Manage Pro license key
+ijachi-router license set IJPRO-YOUR-KEY-HERE
+ijachi-router license status
 ```
 
 ---
 
-## Library Usage
+## Library usage
 
 ```python
 from ijachi_router import route, Router
 
-# One-shot route with auto-humanization and security scanning
-result = route("Write a Python binary search", humanize_mode="light")
+# One-shot — auto-selects the best model
+result = route("Explain quicksort in Python")
 print(result.text)
 print(f"Model: {result.model}  Cost: ${result.cost_usd:.4f}  Latency: {result.latency_s:.2f}s")
+
+# Full control
+router = Router()
+router.config.priority = "cost"
+router.config.max_cost_per_call = 0.005
+result = router.route("Write a haiku about Python")
 ```
 
 ---
 
-## Project Structure
+## 🐙 GitHub Action Integration
+
+Save costs on automated PR summaries, test evaluation, and synthetic code checks by plugging `ijachi-llm-router` directly into your GitHub CI/CD workflows:
+
+```yaml
+- name: Route Prompt with ijachi-llm-router
+  uses: ijachi/ijachi-llm-router@v1
+  with:
+    prompt: "Summarize recent commit changes and check for security flaws"
+    priority: "cost"
+    openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+**Step Outputs**: `${{ steps.router.outputs.response }}`, `${{ steps.router.outputs.model }}`, `${{ steps.router.outputs.cost_usd }}`, and `${{ steps.router.outputs.latency_sec }}`.
+
+See [`.github/workflows/demo-ci.yml`](.github/workflows/demo-ci.yml) for a complete workflow example.
+
+---
+
+## 💻 GitHub CLI Extension (`gh router`)
+
+Run `ijachi-llm-router` directly inside GitHub CLI:
+
+```bash
+# Install the GitHub CLI extension
+gh extension install ijachi/ijachi-llm-router
+
+# Route prompts from gh
+gh router route "Explain this git diff"
+gh router stats
+```
+
+---
+
+## How routing works
+
+```
+Your prompt
+    │
+    ▼
+┌─────────────┐      TF-IDF + LogReg classifier
+│  Classifier │ ──►  category: "code"  confidence: 0.91
+└─────────────┘      complexity: 0.42  (affects cheap vs strong model choice)
+    │
+    ▼
+┌─────────────┐      Scores all available models on:
+│   Scorer    │      • category match  • priority (cost/speed/quality/balanced)
+└─────────────┘      • complexity      • cost cap
+    │
+    ▼
+┌─────────────┐      Per-provider rewrites (no extra LLM call):
+│  Optimizer  │      Anthropic → XML wrap + chain-of-thought
+└─────────────┘      OpenAI/Gemini/DeepSeek → provider-tailored system prompts
+    │
+    ▼
+┌───────────────────┐   Tries providers in ranked order
+│ route_with_fallback│  Catches ProviderError → next candidate
+└───────────────────┘   Circuit breaker auto-skips flaky providers
+    │
+    ▼
+GenerationResult(text, model, cost_usd, latency_s, tokens…)
+    │
+    ▼
+~/.ijachi-llmr/history.jsonl   (append-only cost/usage log)
+```
+
+---
+
+## Add your own model
+
+No code changes needed — just edit [`models.yaml`](models.yaml):
+
+```yaml
+- provider: openai           # matching REGISTRY provider key
+  model_id: gpt-4o-mini      # exact string the API expects
+  tags: [simple-qa, creative, summarization]
+  input_per_1k: 0.00015     # USD per 1,000 input tokens
+  output_per_1k: 0.0006      # USD per 1,000 output tokens
+  max_context: 128000
+  speed_tier: fast           # fast | medium | slow
+```
+
+Valid tags: `code` · `math` · `creative` · `summarization` · `reasoning` · `long-context` · `simple-qa`
+
+Then run `ijachi-router providers` to confirm the provider key is set.
+
+---
+
+## Add a new provider
+
+1. Create `ijachi_router/providers/your_provider.py` implementing the [`Provider`](ijachi_router/providers/base.py) ABC
+2. Register it in [`ijachi_router/providers/__init__.py`](ijachi_router/providers/__init__.py)
+3. Add its env key to `_PROVIDER_ENV_KEYS` in [`ijachi_router/config.py`](ijachi_router/config.py)
+4. Add a rewrite strategy in [`ijachi_router/optimizer.py`](ijachi_router/optimizer.py)
+5. Add at least one model entry in [`models.yaml`](models.yaml)
+
+---
+
+## Project structure
 
 ```
 ijachi-llm-router/
-├── install.sh               # One-line remote curl installer script
-├── uninstall.sh             # One-line remote curl uninstaller script
-├── pyproject.toml           # Package entrypoints (ijachi, ijachi-code, ijachi-router)
+├── action.yml               # GitHub Action definition
+├── gh-router                # GitHub CLI extension executable
 ├── cli.py                  # CLI entry point (click)
 ├── models.yaml             # Model catalog — preconfigured matrix
+├── pyproject.toml           # Package config + dependencies
+├── PRICING.md              # Monetization tier comparison & Paystack link
+├── COMMERCIAL_LICENSE.md   # Enterprise commercial license terms
+├── data/
+│   └── train_data.csv       # Classifier training data (~140 rows)
 ├── ijachi_router/
 │   ├── __init__.py          # Public API: route(), Router
-│   ├── agent.py             # Agentic workspace engine (write/edit gates)
-│   ├── benchmarker.py       # Live tok/s performance benchmarker
-│   ├── budget.py            # Monthly USD spend cap & Ollama failover
 │   ├── catalog_updater.py   # Dynamic remote pricing & catalog updater
 │   ├── classifier.py        # TF-IDF + LogReg prompt classifier
-│   ├── config.py            # Config loader (auto-loads keys.env)
-│   ├── consensus.py         # Multi-model peer review synthesis
+│   ├── config.py            # Config loader (models.yaml + user prefs)
 │   ├── core.py              # Main routing orchestrator
-│   ├── docgen.py            # ARCHITECTURE.md + Mermaid diagram generator
 │   ├── fallback.py          # Circuit breaker + fallback logic
-│   ├── github_automation.py # PR reviewer & release notes generator
-│   ├── humanizer.py         # AI watermark stripper & humanizer
-│   ├── indexer.py           # Fast workspace symbol indexer
-│   ├── key_manager.py       # Secure API key manager (~/.ijachi-llmr/keys.env)
-│   ├── license.py           # License key validation & gating
-│   ├── lsp.py               # IDE & VS Code Extension Bridge server
-│   ├── memory.py            # Persistent project memory & context compressor
+│   ├── license.py           # Pro license key validation & paywall gating
 │   ├── metrics.py           # Usage logging + stats table
-│   ├── model_manager.py     # CLI model manager for models.yaml
 │   ├── optimizer.py         # Per-provider prompt rewrites
-│   ├── sanitizer.py         # Statistical watermark neutralizer (SynthID)
-│   ├── security.py          # OWASP Top 10 security scanner & auto-fixer
 │   ├── server.py            # REST API Gateway & Web Telemetry Dashboard
-│   ├── sdk_generator.py     # Native client SDK exporter (TS/Go/Rust)
-│   ├── streaming.py         # Real-time token streaming engine
-│   ├── swarm.py             # 4-Agent coding swarm (Architect/Dev/Security/QA)
-│   ├── ui.py                # Rich terminal UI & Cyberpunk banners
-│   ├── validator.py         # Zero-regression syntax code validator
-│   └── wizard.py            # Interactive setup wizard & provider table
-└── tests/                   # 98 unit tests (100% passing)
+│   └── providers/
+│       ├── __init__.py      # Provider registry (20 providers)
+│       ├── base.py          # Provider ABC + GenerationResult
+│       ├── anthropic_provider.py
+│       ├── openai_provider.py
+│       ├── deepseek_provider.py
+│       ├── gemini_provider.py
+│       ├── groq_provider.py
+│       ├── mistral_provider.py
+│       ├── moonshot_provider.py
+│       ├── qwen_provider.py
+│       ├── perplexity_provider.py
+│       ├── cohere_provider.py
+│       ├── cerebras_provider.py
+│       ├── sambanova_provider.py
+│       ├── fireworks_provider.py
+│       ├── huggingface_provider.py
+│       ├── bedrock_provider.py
+│       ├── azure_provider.py
+│       ├── custom_provider.py
+│       ├── together_provider.py
+│       ├── openrouter_provider.py
+│       └── local_provider.py
+└── tests/
+    ├── test_catalog_updater.py
+    ├── test_classifier.py
+    ├── test_core.py
+    ├── test_fallback.py
+    ├── test_license.py
+    ├── test_providers.py
+    └── test_server.py
 ```
+
+---
+
+## 🚀 Pro, Enterprise & Commercial Licensing
+
+`ijachi-llm-router` is available under an **Open Core** dual-licensing model:
+
+- 🟢 **Community Edition (Free / MIT)**: Self-hosted CLI & Python SDK for individuals and open-source projects.
+- 🔵 **Pro Edition ($19 / month)**: Hosted REST API Gateway, Web Telemetry Dashboard, and webhook budget alerts.
+- 🟣 **Enterprise Commercial License**: Proprietary closed-source embedding, custom SLAs, white-labeling, and dedicated support.
+
+See [**PRICING.md**](PRICING.md) for full tier details and plan comparisons.  
+For proprietary commercial licensing, see [**COMMERCIAL_LICENSE.md**](COMMERCIAL_LICENSE.md).
+
+👉 **Subscribe to Pro or Buy a License**: [**Paystack Payment Portal**](https://paystack.shop/pay/enlqpvzflw)
+
+---
+
+## 💖 Support & Sponsorship
+
+If `ijachi-llm-router` saved you money or time, consider supporting its ongoing development! Every contribution helps maintain and improve the project.
+
+[![Paystack](https://img.shields.io/badge/Support-Paystack-09A5DB?style=for-the-badge&logo=paystack&logoColor=white)](https://paystack.shop/pay/enlqpvzflw)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ijachi)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sponsors/ijachi)
 
 ---
 
