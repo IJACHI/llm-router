@@ -156,10 +156,11 @@ _INPUT_STYLE = Style.from_dict({
 
 
 def _get_completer() -> WordCompleter:
-    return WordCompleter(
-        list(_SLASH_COMMANDS.keys()) + ["exit", "quit"],
-        sentence=True,
-    )
+    from ijachi_router.skills_loader import discover_skills
+    skills = discover_skills(Path.cwd())
+    skill_cmds = [f"/{s}" for s in skills.keys()]
+    all_cmds = sorted(set(list(_SLASH_COMMANDS.keys()) + skill_cmds + ["exit", "quit"]))
+    return WordCompleter(all_cmds, sentence=True)
 
 
 def _prompt_input(toolbar_fn) -> str | None:
@@ -299,19 +300,40 @@ def _cmd_plan(repl: "RichREPL", args: str) -> bool:
     return False
 
 
-@_register("/memory", "View or clear session memory  (/memory clear to wipe)")
+@_register("/memory", "View or update dual-scope memory (/memory clear | /memory user <note>)")
 def _cmd_memory(repl: "RichREPL", args: str) -> bool:
     from ijachi_router.agent import load_memory, save_memory
-    if args.strip() == "clear":
-        save_memory(str(Path.cwd()), "")
-        console.print("[bold green]✓ Memory cleared.[/bold green]\n")
+    args_s = args.strip()
+    if args_s == "clear":
+        save_memory(str(Path.cwd()), "", scope="project")
+        console.print("[bold green]✓ Project workspace memory cleared.[/bold green]\n")
+    elif args_s.startswith("user "):
+        note = args_s[5:].strip()
+        save_memory(str(Path.cwd()), note, scope="user")
+        console.print(f"[bold green]✓ Saved global user preference:[/bold green] {note}\n")
     else:
-        mem = load_memory(str(Path.cwd()))
+        mem = load_memory(str(Path.cwd()), scope="all")
         if mem:
-            console.print(Panel(mem, title="[bold cyan]📝 Session Memory[/bold cyan]", border_style="cyan"))
+            console.print(Panel(mem, title="[bold cyan]📝 Dual-Scope Memory (User + Project)[/bold cyan]", border_style="cyan"))
         else:
-            console.print("[dim]No memory for this workspace yet.[/dim]")
+            console.print("[dim]No memory saved yet. Use '/memory user <note>' to set global preferences.[/dim]")
     console.print()
+    return False
+
+
+@_register("/skills", "List all available skills (built-in and custom markdown skills)")
+def _cmd_skills(repl: "RichREPL", args: str) -> bool:
+    from ijachi_router.skills_loader import discover_skills
+    from rich.table import Table
+    skills = discover_skills(Path.cwd())
+    table = Table(title="⚡ IJACHI Skills", border_style="bright_blue", show_header=True)
+    table.add_column("Skill / Command", style="bold cyan")
+    table.add_column("Scope", style="dim yellow")
+    table.add_column("Description", style="white")
+    for s in skills.values():
+        table.add_row(f"/{s.name}", s.scope, s.description)
+    console.print(table)
+    console.print("[dim]Create custom skills by dropping *.md files in .ijachi/skills/ or ~/.ijachi-llmr/skills/[/dim]\n")
     return False
 
 
@@ -468,11 +490,26 @@ class RichREPL:
                     should_exit = _SLASH_COMMANDS[cmd_name].handler(self, args)
                     if should_exit:
                         break
-                else:
+                    continue
+
+                # Check if command matches a registered skill (built-in, user, or project)
+                from ijachi_router.skills_loader import discover_skills
+                skills = discover_skills(Path.cwd())
+                skill_key = cmd_name.lstrip("/")
+                if skill_key in skills:
+                    skill = skills[skill_key]
+                    rendered_task = skill.render(args)
                     console.print(
-                        f"[bold red]Unknown command:[/bold red] {cmd_name}  "
-                        "[dim]→ type [bold]/help[/bold] for all commands[/dim]\n"
+                        f"[bold cyan]⚡ Executing skill: [bold magenta]/{skill.name}[/bold magenta] "
+                        f"[dim]({skill.description})[/dim][/bold cyan]\n"
                     )
+                    self._run_agentic(rendered_task)
+                    continue
+
+                console.print(
+                    f"[bold red]Unknown command:[/bold red] {cmd_name}  "
+                    "[dim]→ type [bold]/help[/bold] or [bold]/skills[/bold] for available commands[/dim]\n"
+                )
                 continue
 
             # Route to AI

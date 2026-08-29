@@ -29,10 +29,11 @@ from ijachi_router.core import route
 console = Console()
 
 _MEMORY_DIR = Path.home() / ".ijachi-llmr" / "memory"
+_USER_MEMORY_FILE = _MEMORY_DIR / "user_preferences.txt"
 
 
 # ---------------------------------------------------------------------------
-# Session Memory (Phase 4)
+# Dual-Scope Memory (User + Project)
 # ---------------------------------------------------------------------------
 
 def _workspace_id(path: str | Path) -> str:
@@ -40,32 +41,79 @@ def _workspace_id(path: str | Path) -> str:
     return hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()[:16]
 
 
-def load_memory(workspace_path: str | Path) -> str | None:
-    """Load persistent session memory for a workspace."""
-    wid = _workspace_id(workspace_path)
-    mem_file = _MEMORY_DIR / f"{wid}.txt"
-    if mem_file.exists():
+def load_memory(workspace_path: str | Path, scope: str = "all") -> str | None:
+    """
+    Load persistent memory across two distinct scopes:
+    - 'user': global developer habits and preferences (~/.ijachi-llmr/memory/user_preferences.txt)
+    - 'project': workspace-specific decisions (.ijachi/memory.txt or ~/.ijachi-llmr/memory/<hash>.txt)
+    - 'all': combines both scopes
+    """
+    sections: list[str] = []
+
+    # 1. User Scope (Global Preferences)
+    if scope in ("all", "user") and _USER_MEMORY_FILE.exists():
         try:
-            return mem_file.read_text(encoding="utf-8").strip() or None
+            user_text = _USER_MEMORY_FILE.read_text(encoding="utf-8").strip()
+            if user_text:
+                sections.append(f"[Global Developer Preferences]\n{user_text}")
         except Exception:
             pass
-    return None
+
+    # 2. Project Scope (Workspace Specific)
+    if scope in ("all", "project"):
+        ws = Path(workspace_path).resolve()
+        project_mem_file = ws / ".ijachi" / "memory.txt"
+        wid = _workspace_id(ws)
+        cached_mem_file = _MEMORY_DIR / f"{wid}.txt"
+
+        proj_text = ""
+        if project_mem_file.exists():
+            try:
+                proj_text = project_mem_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+        elif cached_mem_file.exists():
+            try:
+                proj_text = cached_mem_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+
+        if proj_text:
+            sections.append(f"[Project Workspace Memory]\n{proj_text}")
+
+    return "\n\n".join(sections) if sections else None
 
 
-def save_memory(workspace_path: str | Path, content: str) -> None:
-    """Append or overwrite session memory for a workspace."""
+def save_memory(workspace_path: str | Path, content: str, scope: str = "project") -> None:
+    """
+    Save memory to either 'user' (global) or 'project' (workspace) scope.
+    """
     if not content.strip():
         return
-    wid = _workspace_id(workspace_path)
     _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    mem_file = _MEMORY_DIR / f"{wid}.txt"
+
+    if scope == "user":
+        try:
+            existing = _USER_MEMORY_FILE.read_text(encoding="utf-8").strip() if _USER_MEMORY_FILE.exists() else ""
+            entries = [e.strip() for e in existing.split("---") if e.strip()]
+            entries.append(content.strip())
+            entries = entries[-5:]
+            _USER_MEMORY_FILE.write_text("\n---\n".join(entries), encoding="utf-8")
+        except Exception:
+            pass
+        return
+
+    # Project scope: prefer .ijachi/memory.txt if .ijachi directory exists, else fallback to _MEMORY_DIR/<hash>.txt
+    ws = Path(workspace_path).resolve()
+    local_dir = ws / ".ijachi"
+    target_file = (local_dir / "memory.txt") if local_dir.exists() else (_MEMORY_DIR / f"{_workspace_id(ws)}.txt")
+
     try:
-        # Keep last 5 entries (compact rolling summary)
-        existing = mem_file.read_text(encoding="utf-8").strip() if mem_file.exists() else ""
+        existing = target_file.read_text(encoding="utf-8").strip() if target_file.exists() else ""
         entries = [e.strip() for e in existing.split("---") if e.strip()]
         entries.append(content.strip())
-        entries = entries[-5:]  # Keep last 5 summaries
-        mem_file.write_text("\n---\n".join(entries), encoding="utf-8")
+        entries = entries[-5:]
+        target_file.write_text("\n---\n".join(entries), encoding="utf-8")
     except Exception:
         pass
 
@@ -115,25 +163,73 @@ class WorkspaceTools:
         except Exception as e:
             return f"Error writing file '{path}': {e}"
 
+    @staticmethod
+    def _apply_fuzzy_replace(existing: str, target: str, replacement: str) -> tuple[str | None, str]:
+        """
+        Multi-strategy content replacement:
+        1. Exact match
+        2. Normalized line endings (\\r\\n -> \\n)
+        3. Whitespace & indentation tolerant line-by-line matching
+        Returns (new_content, strategy_name) or (None, "")
+        """
+        # Strategy 1: Exact match
+        if target in existing:
+            return existing.replace(target, replacement, 1), "exact match"
+
+        # Strategy 2: Normalized line endings
+        norm_existing = existing.replace("\r\n", "\n")
+        norm_target = target.replace("\r\n", "\n")
+        if norm_target in norm_existing:
+            return norm_existing.replace(norm_target, replacement.replace("\r\n", "\n"), 1), "normalized line endings"
+
+        # Strategy 3: Whitespace & indentation-tolerant line matching
+        existing_lines = existing.splitlines(keepends=True)
+        target_lines_stripped = [l.strip() for l in target.splitlines() if l.strip()]
+        if not target_lines_stripped:
+            return None, ""
+
+        raw_target_len = len(target.splitlines())
+        match_start = -1
+        match_end = -1
+
+        for i in range(len(existing_lines)):
+            slice_stripped = [l.strip() for l in existing_lines[i:i + raw_target_len] if l.strip()]
+            if slice_stripped == target_lines_stripped:
+                match_start = i
+                match_end = i + raw_target_len
+                break
+
+        if match_start != -1:
+            prefix = "".join(existing_lines[:match_start])
+            suffix = "".join(existing_lines[match_end:])
+            rep_text = replacement if (replacement.endswith("\n") or not suffix) else replacement + "\n"
+            return prefix + rep_text + suffix, "indentation/whitespace tolerant"
+
+        return None, ""
+
     def edit_file(self, path: str, target_content: str, replacement_content: str, require_approval: bool = True) -> str:
         target = self._resolve_path(path)
         if not target.exists():
             return f"Error: File '{path}' does not exist."
         try:
             existing = target.read_text(encoding="utf-8")
-            if target_content not in existing:
-                return f"Error: Target content string not found in '{path}'."
+            new_content, strategy = self._apply_fuzzy_replace(existing, target_content, replacement_content)
+            if new_content is None:
+                return (
+                    f"Error: Target content string not found in '{path}'. "
+                    f"Tried exact match, line ending normalization, and whitespace-tolerant matching."
+                )
+
             if require_approval:
-                console.print(f"\n[bold yellow]⚠️ Workspace File Edit Request[/bold yellow]")
+                console.print(f"\n[bold yellow]⚠️ Workspace File Edit Request[/bold yellow] [dim]({strategy})[/dim]")
                 console.print(f"Target path: [cyan]{target}[/cyan]")
                 console.print(f"[red]- Removing:[/red]\n{target_content[:300]}")
                 console.print(f"[green]+ Adding:[/green]\n{replacement_content[:300]}")
                 if not Confirm.ask("Do you want to apply this edit?", default=True):
                     return "Cancelled by user."
 
-            new_content = existing.replace(target_content, replacement_content, 1)
             target.write_text(new_content, encoding="utf-8")
-            return f"Successfully applied edit to '{path}'."
+            return f"Successfully applied edit to '{path}' ({strategy})."
         except Exception as e:
             return f"Error editing file '{path}': {e}"
 
@@ -307,10 +403,49 @@ class AgenticRouter:
             base = f"{base}\n\n{self.workspace_context}"
         return base
 
+    @staticmethod
+    def _micro_compact_turn(turn: str) -> str:
+        """
+        Micro-compact older intermediate tool outputs to prevent context bloating:
+        - Collapses list_dir listings to first 4 items + count
+        - Collapses grep_search results to first 4 matches + count
+        - Collapses long read_file outputs (> 40 lines) to head and tail
+        """
+        lines = turn.splitlines()
+        # 1. Truncate list_dir
+        if "Tool Output (list_dir):" in turn and len(lines) > 8:
+            header = lines[:5]
+            count = len(lines) - 5
+            return "\n".join(header) + f"\n... [{count} additional directory items collapsed to save context]"
+
+        # 2. Truncate grep_search
+        if "Tool Output (grep_search):" in turn and len(lines) > 8:
+            header = lines[:5]
+            count = len(lines) - 5
+            return "\n".join(header) + f"\n... [{count} additional grep matches collapsed to save context]"
+
+        # 3. Truncate long read_file
+        if "Tool Output (read_file):" in turn and len(lines) > 40:
+            head = lines[:15]
+            tail = lines[-8:]
+            collapsed = len(lines) - 23
+            return "\n".join(head) + f"\n... [{collapsed} lines collapsed to save context] ...\n" + "\n".join(tail)
+
+        return turn
+
     def _maybe_auto_compact(self, prompt: str, history_parts: list[str]) -> tuple[str, list[str]]:
-        """Auto-compact history when approaching context limits."""
+        """
+        Two-tier progressive compaction pipeline:
+        1. Micro-compaction: collapses verbose tool outputs in older turns (list_dir, grep, read_file)
+        2. Reactive summarization: LLM-driven summary if tokens still exceed threshold
+        """
+        # Tier 1: Micro-compact older turns (keep last 2 turns intact for immediate context)
+        if len(history_parts) > 2:
+            compacted_older = [self._micro_compact_turn(p) for p in history_parts[:-2]]
+            history_parts = compacted_older + history_parts[-2:]
+
+        # Tier 2: LLM Reactive compression if still exceeding token limits
         total_chars = sum(len(p) for p in history_parts) + len(prompt)
-        # Rough heuristic: 4 chars ≈ 1 token
         estimated_tokens = total_chars // 4
         if estimated_tokens > self._auto_compact_threshold and len(history_parts) > 4:
             console.print(f"[bold yellow]🔄 Auto-compacting context ({estimated_tokens:,} tokens → summary)[/bold yellow]")
