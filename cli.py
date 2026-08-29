@@ -175,10 +175,22 @@ def agent_cmd(task, priority, max_steps, no_approval):
     click.echo(click.style(f"\n[steps={len(result.steps)} total_cost=${result.total_cost_usd:.4f}]", fg="bright_black"))
 
 
+@main.command(name="banner")
+def banner_cmd():
+    """Display bold ASCII art banner for IJACHI."""
+    from ijachi_router.ui import print_banner
+
+    print_banner()
+
+
 @main.command(name="chat")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
 def chat_cmd(priority):
     """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
+    from ijachi_router.ui import print_banner
+
+    print_banner()
+
     from ijachi_router.agent import AgenticRouter
 
     agent = AgenticRouter(priority=priority, require_approval=True)
@@ -342,7 +354,7 @@ def code_main():
     known_commands = {
         "route", "stats", "providers", "provider", "update-catalog", "train",
         "serve", "dashboard", "license", "agent", "chat", "fix", "consensus",
-        "index", "commit", "update"
+        "index", "commit", "update", "banner"
     }
     args = sys.argv[1:]
     if not args:
