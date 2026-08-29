@@ -185,29 +185,36 @@ def banner_cmd():
 
 @main.command(name="chat")
 @click.option("--priority", "-p", type=click.Choice(["cost", "speed", "quality", "balanced"]), default="balanced")
-def chat_cmd(priority):
+@click.option("--plan", is_flag=True, default=False, help="Enable plan-first mode for all tasks.")
+@click.option("--auto", is_flag=True, default=False, help="Auto-approve all file operations.")
+def chat_cmd(priority, plan, auto):
     """[AGENTIC] Start an interactive terminal REPL chat session with workspace tools."""
     from ijachi_router.ui import print_banner
+    from ijachi_router.repl import RichREPL
 
     print_banner()
+    repl = RichREPL(priority=priority, plan_mode=plan, auto_approve=auto)
+    repl.start()
 
-    from ijachi_router.agent import AgenticRouter
 
-    agent = AgenticRouter(priority=priority, require_approval=True)
-    click.echo(click.style("💬 ijachi-code Interactive Agentic REPL Session", fg="cyan", bold=True))
-    click.echo("Type your workspace coding prompt or 'exit' / 'quit' to end.\n")
+@main.command(name="status")
+def status_cmd():
+    """Show active provider health, selected model, and session info."""
+    from ijachi_router.health import check_providers_quick, render_provider_card
+    from ijachi_router.config import load_config
 
-    while True:
-        try:
-            user_input = click.prompt("ijachi-code>", type=str)
-            if user_input.strip().lower() in {"exit", "quit", "q"}:
-                click.echo("Goodbye!")
-                break
-            result = agent.run(user_input)
-            click.echo("\n" + result.final_text + "\n")
-        except (KeyboardInterrupt, EOFError):
-            click.echo("\nSession ended.")
-            break
+    cfg = load_config()
+    statuses = check_providers_quick(cfg)
+    render_provider_card(statuses)
+
+
+@main.command(name="init")
+def init_cmd():
+    """Generate an IJACHI.md workspace context file for this project."""
+    from ijachi_router.workspace_context import generate_workspace_context
+    from pathlib import Path
+
+    generate_workspace_context(Path.cwd(), auto=False)
 
 
 @main.command(name="fix")
@@ -354,7 +361,7 @@ def code_main():
     known_commands = {
         "route", "stats", "providers", "provider", "update-catalog", "train",
         "serve", "dashboard", "license", "agent", "chat", "fix", "consensus",
-        "index", "commit", "update", "banner"
+        "index", "commit", "update", "banner", "status", "init",
     }
     args = sys.argv[1:]
     if not args:
