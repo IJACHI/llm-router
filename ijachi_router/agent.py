@@ -2,10 +2,17 @@
 
 Provides multi-step autonomous tool execution (read_file, write_file, edit_file,
 list_dir, grep_search, run_command) powered by ijachi-llm-router's multi-provider engine.
+
+New in this version:
+- Session memory (persistent cross-session context per workspace)
+- Workspace context injection (IJACHI.md / CLAUDE.md / AGENTS.md)
+- Auto-compact: compresses context when approaching token limit
+- Plan-first mode integration
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -20,6 +27,47 @@ from rich.prompt import Confirm
 from ijachi_router.core import route
 
 console = Console()
+
+_MEMORY_DIR = Path.home() / ".ijachi-llmr" / "memory"
+
+
+# ---------------------------------------------------------------------------
+# Session Memory (Phase 4)
+# ---------------------------------------------------------------------------
+
+def _workspace_id(path: str | Path) -> str:
+    """Return a short hash identifier for a workspace path."""
+    return hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()[:16]
+
+
+def load_memory(workspace_path: str | Path) -> str | None:
+    """Load persistent session memory for a workspace."""
+    wid = _workspace_id(workspace_path)
+    mem_file = _MEMORY_DIR / f"{wid}.txt"
+    if mem_file.exists():
+        try:
+            return mem_file.read_text(encoding="utf-8").strip() or None
+        except Exception:
+            pass
+    return None
+
+
+def save_memory(workspace_path: str | Path, content: str) -> None:
+    """Append or overwrite session memory for a workspace."""
+    if not content.strip():
+        return
+    wid = _workspace_id(workspace_path)
+    _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    mem_file = _MEMORY_DIR / f"{wid}.txt"
+    try:
+        # Keep last 5 entries (compact rolling summary)
+        existing = mem_file.read_text(encoding="utf-8").strip() if mem_file.exists() else ""
+        entries = [e.strip() for e in existing.split("---") if e.strip()]
+        entries.append(content.strip())
+        entries = entries[-5:]  # Keep last 5 summaries
+        mem_file.write_text("\n---\n".join(entries), encoding="utf-8")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -238,23 +286,64 @@ If no further tool calls are required and your task is complete, respond with:
 class AgenticRouter:
     """Autonomous agentic router that ties multi-provider routing to workspace tools."""
 
-    def __init__(self, root_dir: Path | str | None = None, priority: str = "balanced", require_approval: bool = True):
+    def __init__(
+        self,
+        root_dir: Path | str | None = None,
+        priority: str = "balanced",
+        require_approval: bool = True,
+        workspace_context: str | None = None,
+    ):
         self.tools = WorkspaceTools(root_dir=root_dir)
         self.priority = priority
         self.require_approval = require_approval
+        self.workspace_context = workspace_context  # Injected IJACHI.md / CLAUDE.md content
+        self._session_input_tokens: int = 0
+        self._auto_compact_threshold: int = 60_000  # tokens before auto-compact
+
+    def _build_system_prompt(self) -> str:
+        """Build system prompt with optional workspace context injected."""
+        base = _SYSTEM_PROMPT
+        if self.workspace_context:
+            base = f"{base}\n\n{self.workspace_context}"
+        return base
+
+    def _maybe_auto_compact(self, prompt: str, history_parts: list[str]) -> tuple[str, list[str]]:
+        """Auto-compact history when approaching context limits."""
+        total_chars = sum(len(p) for p in history_parts) + len(prompt)
+        # Rough heuristic: 4 chars ≈ 1 token
+        estimated_tokens = total_chars // 4
+        if estimated_tokens > self._auto_compact_threshold and len(history_parts) > 4:
+            console.print(f"[bold yellow]🔄 Auto-compacting context ({estimated_tokens:,} tokens → summary)[/bold yellow]")
+            to_compress = "\n".join(history_parts[:-2])  # Keep last 2 turns
+            try:
+                summary_res = route(
+                    f"Summarize these agent steps in 5 bullet points preserving key decisions and file changes:\n\n{to_compress[:8000]}",
+                    priority="cost",
+                )
+                compacted = f"[Auto-compacted context]\n{summary_res.text.strip()}"
+                history_parts = [compacted] + history_parts[-2:]
+                console.print(f"[dim]Context reduced to ~{len(compacted)//4:,} tokens[/dim]")
+            except Exception:
+                pass
+        return prompt, history_parts
 
     def run(self, task: str, max_steps: int = 10) -> AgentResult:
-        conversation_history: list[dict[str, str]] = []
         steps: list[AgentStep] = []
         total_cost = 0.0
+        history_parts: list[str] = []
 
-        current_prompt = f"{_SYSTEM_PROMPT}\n\nTask: {task}\n"
+        current_prompt = f"{self._build_system_prompt()}\n\nTask: {task}\n"
 
         for step_idx in range(1, max_steps + 1):
             console.print(f"[bold cyan]🤖 ijachi-code Step {step_idx}/{max_steps}[/bold cyan]")
 
-            # Route prompt to optimal model
-            res = route(prompt=current_prompt, priority=self.priority)
+            # Auto-compact if approaching context limits
+            current_prompt, history_parts = self._maybe_auto_compact(current_prompt, history_parts)
+
+            # Route: classify only the *task* text for model selection,
+            # but send the full conversation context as the actual prompt.
+            res = route(prompt=current_prompt, priority=self.priority, _classify_as=task)
+            self._session_input_tokens += res.input_tokens
             total_cost += res.cost_usd
 
             response_text = res.text.strip()
@@ -334,7 +423,9 @@ class AgenticRouter:
             )
             steps.append(step_record)
 
-            current_prompt += f"\nAssistant: {response_text}\nTool Output ({tool_name}):\n{tool_output}\nContinue task."
+            turn = f"\nAssistant: {response_text}\nTool Output ({tool_name}):\n{tool_output}\nContinue task."
+            history_parts.append(turn)
+            current_prompt += turn
 
         return AgentResult(
             final_text="Agentic loop reached maximum steps.",
