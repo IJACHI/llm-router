@@ -19,6 +19,18 @@ class GenerationResult:
     latency_s: float
     raw_error: str | None = None
 
+    @property
+    def model_used(self) -> str:
+        return f"{self.provider}/{self.model}"
+
+    @property
+    def cost(self) -> float:
+        return self.cost_usd
+
+    @property
+    def latency_sec(self) -> float:
+        return self.latency_s
+
 
 class ProviderError(Exception):
     """Raised when a provider call fails (timeout, auth, rate limit, etc)."""
