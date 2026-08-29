@@ -24,10 +24,10 @@ def test_repl_clear_resets_cost():
     from ijachi_router.repl import RichREPL, _SLASH_COMMANDS
     repl = RichREPL()
     repl.session_cost = 9.99
-    repl.history.append({"role": "user", "content": "test"})
+    repl.history_ctx.append({"role": "user", "content": "test"})
     _SLASH_COMMANDS["/clear"].handler(repl, "")
     assert repl.session_cost == 0.0
-    assert repl.history == []
+    assert repl.history_ctx == []
 
 
 def test_repl_auto_toggle():
