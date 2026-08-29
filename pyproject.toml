@@ -30,6 +30,7 @@ dependencies = [
     "requests>=2.28",
     "click>=8.1",
     "rich>=13.0",
+    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
