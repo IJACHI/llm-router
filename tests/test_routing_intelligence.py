@@ -177,3 +177,93 @@ def test_routing_explanation_why_format():
     assert "code-edit" in rendered
     assert "below agent quality floor" in rendered
     assert "claude-sonnet-4-5" in rendered
+
+
+def test_complexity_adequacy_floor_rejects_tier_1():
+    """Verify tier 1 models are disqualified on moderate/high complexity even without tools."""
+    weak_3b = ModelConfig(
+        provider="local",
+        model_id="llama3.2:3b",
+        tags=["code", "simple-qa"],
+        input_per_1k=0.0,
+        output_per_1k=0.0,
+        max_context=8192,
+        speed_tier="fast",
+        quality_tier=1,
+    )
+    state = SessionState(session_id="test_comp_floor")
+    # Complexity 0.65, pure architectural/reasoning query without tools
+    need = extract_session_need("design microservices", state, "code", 0.9, 0.65)
+    need.requires_tools = False
+
+    eligible, filtered_reasons = filter_candidates(
+        candidates=[weak_3b],
+        need=need,
+    )
+    assert len(eligible) == 0
+    assert "below complexity adequacy floor" in filtered_reasons.get("local/llama3.2:3b", "")
+
+
+def test_cheapest_adequate_model_wins_among_adequate():
+    """When multiple models meet the adequacy floor, the cheapest (free) model wins."""
+    free_adequate = ModelConfig(
+        provider="local",
+        model_id="qwen2.5-coder:7b",
+        tags=["code"],
+        input_per_1k=0.0,
+        output_per_1k=0.0,
+        max_context=32768,
+        speed_tier="fast",
+        quality_tier=2,
+    )
+    paid_adequate = ModelConfig(
+        provider="anthropic",
+        model_id="claude-3-5-haiku",
+        tags=["code"],
+        input_per_1k=0.001,
+        output_per_1k=0.005,
+        max_context=200000,
+        speed_tier="fast",
+        quality_tier=2,
+    )
+    state = SessionState(session_id="test_cheap_adequate")
+    need = extract_session_need("refactor user auth", state, "code", 0.9, 0.55)
+
+    score_free = score_candidate(free_adequate, need, priority="balanced")
+    score_paid = score_candidate(paid_adequate, need, priority="balanced")
+
+    # Both are Tier 2 (adequate), but free model wins on cost efficiency
+    assert score_free > score_paid
+
+
+def test_high_complexity_favors_frontier_quality():
+    """For high-complexity tasks, frontier (tier 4) models score higher than standard models."""
+    standard_model = ModelConfig(
+        provider="local",
+        model_id="qwen2.5-coder:7b",
+        tags=["code"],
+        input_per_1k=0.0,
+        output_per_1k=0.0,
+        max_context=32768,
+        speed_tier="fast",
+        quality_tier=2,
+    )
+    frontier_model = ModelConfig(
+        provider="anthropic",
+        model_id="claude-sonnet-4-5",
+        tags=["code", "reasoning"],
+        input_per_1k=0.003,
+        output_per_1k=0.015,
+        max_context=200000,
+        speed_tier="medium",
+        quality_tier=4,
+    )
+    state = SessionState(session_id="test_frontier")
+    need = extract_session_need("complex distributed consensus", state, "code", 0.95, 0.85)
+
+    score_standard = score_candidate(standard_model, need, priority="balanced")
+    score_frontier = score_candidate(frontier_model, need, priority="balanced")
+
+    # On complexity 0.85, quality tier 4 outscores tier 2 despite non-zero cost
+    assert score_frontier > score_standard
+

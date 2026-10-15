@@ -39,9 +39,21 @@ class ModelConfig:
     output_per_1k: float
     max_context: int
     speed_tier: str  # fast | medium | slow
+    quality_tier: int = 2
 
     @classmethod
     def from_dict(cls, d: dict) -> "ModelConfig":
+        mid = d["model_id"].lower()
+        default_tier = 2
+        if any(term in mid for term in ("3b", "1b", "lite", "mini", "small")):
+            default_tier = 1
+        elif any(term in mid for term in ("sonnet", "opus", "gpt-4o", "405b", "pro", "r1", "32b", "70b")):
+            default_tier = 4
+        elif d.get("speed_tier") == "slow":
+            default_tier = 3
+        elif "code" in d.get("tags", []) or "reasoning" in d.get("tags", []):
+            default_tier = 2
+
         return cls(
             provider=d["provider"],
             model_id=d["model_id"],
@@ -50,6 +62,7 @@ class ModelConfig:
             output_per_1k=float(d.get("output_per_1k", 0)),
             max_context=int(d.get("max_context", 4096)),
             speed_tier=d.get("speed_tier", "medium"),
+            quality_tier=int(d.get("quality_tier", default_tier)),
         )
 
     @property

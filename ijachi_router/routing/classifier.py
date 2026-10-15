@@ -30,6 +30,9 @@ _KEYWORD_RULES: list[tuple[str, list[str]]] = [
         "def ", "function ", "class ", "import ", "```", "sql", "api",
         "test", "regex", "algorithm", "script", "async", "await", "loop",
         "array", "variable", "compile", "runtime", "syntax", "git",
+        "website", "app", "application", "software", "html", "css", "javascript",
+        "frontend", "backend", "full-stack", "component", "scaffold", "build",
+        "develop", "newsletter", "pipeline",
     ]),
     ("math", [
         "integral", "derivative", "equation", "solve", "calculate", "proof",
@@ -63,7 +66,7 @@ def complexity_score(prompt: str) -> float:
     """Return a complexity score in [0.0, 1.0]."""
     words = prompt.split()
     word_count = len(words)
-    length_score = min(word_count / 200, 1.0) * 0.5
+    length_score = min(word_count / 150, 1.0) * 0.4
 
     multi_step_markers = [
         "first", "then", "next", "finally", "also", "additionally",
@@ -71,12 +74,22 @@ def complexity_score(prompt: str) -> float:
     ]
     lower = prompt.lower()
     marker_hits = sum(1 for m in multi_step_markers if m in lower)
-    step_score = min(marker_hits / 4, 1.0) * 0.3
+    step_score = min(marker_hits / 4, 1.0) * 0.25
 
     technical_chars = len(re.findall(r"[(){}\[\]<>]", prompt))
-    tech_score = min(technical_chars / 20, 1.0) * 0.2
+    tech_score = min(technical_chars / 20, 1.0) * 0.15
 
-    return round(length_score + step_score + tech_score, 3)
+    # Architectural scope markers (building full apps, websites, platforms)
+    scope_markers = [
+        "website", "application", "platform", "pipeline", "system", "full-stack",
+        "newsletter", "automated", "database", "backend", "frontend", "architecture",
+        "integrate", "crawler", "production", "academic journals",
+    ]
+    scope_hits = sum(1 for s in scope_markers if s in lower)
+    scope_score = min(scope_hits / 3, 1.0) * 0.4
+
+    score = length_score + step_score + tech_score + scope_score
+    return round(min(max(score, 0.0), 1.0), 3)
 
 
 def _keyword_classify(prompt: str) -> tuple[str, float]:
@@ -163,9 +176,9 @@ def get_safe_model() -> SafeModel | None:
 
 def predict_category(prompt: str) -> tuple[str, float]:
     """Predict task category and confidence for *prompt*."""
-    # Check keyword heuristics for specific developer tasks (debugging, code-edit)
+    # Check keyword heuristics for developer tasks (code, debugging, code-edit)
     cat, conf = _keyword_classify(prompt)
-    if cat in ("debugging", "code-edit/refactor"):
+    if cat in ("debugging", "code-edit/refactor", "code"):
         return cat, conf
 
     # If safe model exists, use it

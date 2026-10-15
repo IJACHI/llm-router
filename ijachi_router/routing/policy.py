@@ -82,6 +82,12 @@ def filter_candidates(
             filtered_reasons[full_id] = f"below agent quality floor (tier {quality_tier} < {agent_quality_floor})"
             continue
 
+        # 4b. Adequacy check: complexity floor
+        # Tier 1 models (e.g. 1B-3B) are inadequate for moderate/high complexity code and reasoning
+        if need.complexity >= 0.5 and quality_tier < 2:
+            filtered_reasons[full_id] = f"below complexity adequacy floor (tier {quality_tier} < 2 for complexity {need.complexity:.2f})"
+            continue
+
         # 5. Category match
         if not is_category_match(m.tags, need.category):
             filtered_reasons[full_id] = f"does not match category '{need.category}'"

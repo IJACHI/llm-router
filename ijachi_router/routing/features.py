@@ -41,6 +41,8 @@ def extract_session_need(
     tool_keywords = [
         "file", "read", "write", "edit", "run", "test", "mkdir", "git",
         "search", "grep", "fix", "find", "list", "install", "check",
+        "build", "create", "scaffold", "generate", "make", "develop",
+        "website", "app", "application", "newsletter", "implement", "pipeline",
     ]
     requires_tools = any(kw in lower for kw in tool_keywords) or bool(state.working_set)
     requires_vision = any(ext in lower for ext in [".png", ".jpg", ".jpeg", ".webp", ".svg", "screenshot", "image"])
