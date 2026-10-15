@@ -159,22 +159,31 @@ class InteractiveREPL:
                     table.add_row(key, f"[{col}]{name}[/{col}]", desc, status)
 
                 console.print(table)
-                console.print("[dim]Switch mode: [bold cyan]/mode <efficient | cheapest | best | best-fit>[/bold cyan] (or 1-4)[/dim]\n")
-            else:
-                norm = normalize_mode(args)
-                self.state.priority = norm
-                self.loop.config.priority = norm
-                save_user_priority(norm)
-                labels = {
-                    "efficient": "Most Efficient (Cost & Best Fit Balanced - Default)",
-                    "cheapest": "Only Cheapest (Lowest Cost & Free Models)",
-                    "best": "Best Models (High Capability Bias)",
-                    "best-fit": "Best Fit Irrespective of Cost (Pure Task Quality)",
-                    "speed": "Speed (Lowest Latency)",
-                }
-                desc = labels.get(norm, norm)
-                console.print(f"[bold green]✓ Routing preference set to:[/bold green] [bold cyan]{norm}[/bold cyan] · {desc}")
-                console.print("[dim]Saved as your default preference in ~/.ijachi-llmr/config.yaml[/dim]\n")
+                try:
+                    choice = input("Select routing mode (1-4 or name) [Enter to keep current]: ").strip()
+                    if choice:
+                        args = choice
+                    else:
+                        console.print()
+                        return False
+                except (KeyboardInterrupt, EOFError):
+                    console.print()
+                    return False
+
+            norm = normalize_mode(args)
+            self.state.priority = norm
+            self.loop.config.priority = norm
+            save_user_priority(norm)
+            labels = {
+                "efficient": "Most Efficient (Cost & Best Fit Balanced - Default)",
+                "cheapest": "Only Cheapest (Lowest Cost & Free Models)",
+                "best": "Best Models (High Capability Bias)",
+                "best-fit": "Best Fit Irrespective of Cost (Pure Task Quality)",
+                "speed": "Speed (Lowest Latency)",
+            }
+            desc = labels.get(norm, norm)
+            console.print(f"[bold green]✓ Routing preference set to:[/bold green] [bold cyan]{norm}[/bold cyan] · {desc}")
+            console.print("[dim]Saved as your default preference in ~/.ijachi-llmr/config.yaml[/dim]\n")
             return False
 
         if cmd in ("/autonomy", "/permissions"):
@@ -198,16 +207,25 @@ class InteractiveREPL:
                     table.add_row(key, f"[{col}]{name}[/{col}]", desc, status)
 
                 console.print(table)
-                console.print("[dim]Toggle anytime with [bold cyan]/auto[/bold cyan], or set: [bold cyan]/autonomy <auto | semi-auto | manual>[/bold cyan][/dim]\n")
-            else:
-                norm = normalize_permission_mode(args)
-                self.loop.permissions.mode = norm
-                labels = {
-                    "auto": "Fully automatic (no need for user approvals for safe activities)",
-                    "semi-auto": "Semi-automatic (approvals for some activities)",
-                    "manual": "Manual (needs approval for every major activity)",
-                }
-                console.print(f"[bold green]✓ Autonomy level set to:[/bold green] [bold cyan]{norm}[/bold cyan] · {labels.get(norm, norm)}\n")
+                try:
+                    choice = input("Select autonomy level (1-3 or name) [Enter to keep current]: ").strip()
+                    if choice:
+                        args = choice
+                    else:
+                        console.print()
+                        return False
+                except (KeyboardInterrupt, EOFError):
+                    console.print()
+                    return False
+
+            norm = normalize_permission_mode(args)
+            self.loop.permissions.mode = norm
+            labels = {
+                "auto": "Fully automatic (no need for user approvals for safe activities)",
+                "semi-auto": "Semi-automatic (approvals for some activities)",
+                "manual": "Manual (needs approval for every major activity)",
+            }
+            console.print(f"[bold green]✓ Autonomy level set to:[/bold green] [bold cyan]{norm}[/bold cyan] · {labels.get(norm, norm)}\n")
             return False
 
         if cmd == "/auto":
@@ -367,12 +385,16 @@ class InteractiveREPL:
 
     def start(self) -> None:
         """Start the interactive loop."""
-        console.print(Panel(
+        r_mode = self.state.priority or "efficient"
+        a_mode = getattr(self.loop.permissions, "mode", "manual")
+        banner = (
             f"[bold cyan]ijachi-code v1.0[/bold cyan]  ·  [dim]{self.state.workspace_dir}[/dim]\n"
-            f"[white]Autonomous pairing assistant with continuous cross-model session routing.[/white]",
-            border_style="cyan",
-            padding=(0, 2),
-        ))
+            f"[white]Autonomous pairing assistant with continuous cross-model session routing.[/white]\n\n"
+            f"  ⚡ [bold]Routing Mode:[/bold]    [bold green]{r_mode.upper()}[/bold green] (Cost/fit balanced) · Type [bold cyan]/mode[/bold cyan] to change\n"
+            f"  🛡️  [bold]Autonomy Level:[/bold]  [bold yellow]{a_mode.upper()}[/bold yellow] · Type [bold cyan]/auto[/bold cyan] to toggle or [bold cyan]/autonomy[/bold cyan]\n"
+            f"  💡 [bold]Shortcuts:[/bold]       [cyan]/help[/cyan] (commands) · [cyan]![/cyan]cmd (shell) · [cyan]#[/cyan]note (session ledger)"
+        )
+        console.print(Panel(banner, border_style="cyan", padding=(0, 2)))
 
         while True:
             user_input = prompt_user_input(

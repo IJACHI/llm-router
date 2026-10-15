@@ -110,7 +110,7 @@ def prompt_user_input(
     status = toolbar_fn()
     if status:
         from rich.console import Console
-        Console().print(f"[dim]{status}[/dim]")
+        Console().print(status)
 
     try:
         text = session.prompt([("class:prompt", "> ")])

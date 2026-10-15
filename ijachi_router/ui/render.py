@@ -87,9 +87,16 @@ def format_status_line(
     routing_mode: str = "efficient",
     autonomy_mode: str = "manual",
 ) -> str:
-    """Format single-line status bar with routing mode and autonomy level."""
+    """Format single-line status bar with vibrant colored badges for routing and autonomy."""
     budget_str = f" / ${budget_usd:.2f}" if budget_usd is not None else ""
+    route_colors = {"efficient": "bold green", "cheapest": "bold yellow", "best": "bold cyan", "best-fit": "bold magenta"}
+    auto_colors = {"auto": "bold green", "semi-auto": "bold yellow", "manual": "bold cyan"}
+
+    r_col = route_colors.get(routing_mode, "bold green")
+    a_col = auto_colors.get(autonomy_mode, "bold cyan")
+
     return (
-        f"[{routing_mode} | {autonomy_mode}] · {mode}: {model or 'auto'} · "
-        f"ctx {ctx_percent}% · turn ${last_cost:.4f} · session ${session_cost:.4f}{budget_str}"
+        f"[{r_col}]⚡ {routing_mode}[/{r_col}] · [{a_col}]🛡️  {autonomy_mode}[/{a_col}] · "
+        f"[dim]{mode}: {model or 'auto'} · ctx {ctx_percent}% · "
+        f"turn ${last_cost:.4f} · session ${session_cost:.4f}{budget_str}[/dim]"
     )

@@ -186,4 +186,50 @@ def test_repl_mode_and_autonomy_toggle(tmp_path):
 
     # Verify status line displays both modes
     status = repl._toolbar_fn()
-    assert "[best-fit | auto]" in status
+    assert "best-fit" in status
+    assert "auto" in status
+
+
+def test_automatic_tech_stack_determination(tmp_path):
+    from ijachi_router.routing.architect import detect_and_determine_tech_stack
+    state = SessionState(session_id="test_stack", workspace_dir=tmp_path)
+
+    # 1. Unspecified stack on medical newsletter creation
+    prompt = "build me an automated weekly medical newsletter website that aggregates and summarizes new medical papers from pubmed"
+    rec = detect_and_determine_tech_stack(prompt, tmp_path, state)
+    assert rec is not None
+    assert "FastAPI" in rec.name
+    assert "SQLite" in rec.name
+    assert "APScheduler" in rec.name
+
+    # Decision is committed to session ledger
+    assert any("tech stack" in e.fact.lower() for e in state.ledger.entries)
+
+    # 2. Subsequent check skips because already determined in ledger
+    rec_second = detect_and_determine_tech_stack(prompt, tmp_path, state)
+    assert rec_second is None
+
+    # 3. User explicitly specifies stack ("in Flask") -> should skip determination
+    state2 = SessionState(session_id="test_stack_explicit", workspace_dir=tmp_path)
+    rec_explicit = detect_and_determine_tech_stack("build this app in Flask", tmp_path, state2)
+    assert rec_explicit is None
+
+    # 4. Project already has package.json -> should skip determination
+    (tmp_path / "package.json").write_text("{}")
+    state3 = SessionState(session_id="test_stack_pkg", workspace_dir=tmp_path)
+    rec_existing = detect_and_determine_tech_stack("build user dashboard", tmp_path, state3)
+    assert rec_existing is None
+
+
+def test_catchy_spinner_and_activity():
+    from ijachi_router.ui.activity import CatchyStatusSpinner, render_routing_badge, render_thought_stream, render_tool_activity
+
+    # Catchy spinner context manager
+    with CatchyStatusSpinner(initial_phrase="Thinking...") as spinner:
+        assert spinner is not None
+
+    # Transparent rendering functions
+    render_routing_badge("qwen2.5-coder:7b", "local", 0.0, "highest score", quality_tier=2)
+    render_thought_stream("Analyzing PubMed API query...")
+    render_tool_activity("Write", {"path": "main.py"}, success=True, output="Saved 100 lines")
+

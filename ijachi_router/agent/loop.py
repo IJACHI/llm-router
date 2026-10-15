@@ -130,6 +130,18 @@ class AgentSessionLoop:
         last_provider_used = ""
         start_time = time.monotonic()
 
+        # 1. Automatic tech stack determination on new projects if not specified
+        from ijachi_router.routing.architect import detect_and_determine_tech_stack
+        rec = detect_and_determine_tech_stack(
+            prompt=user_message,
+            workspace_dir=self.state.workspace_dir,
+            session_state=self.state,
+        )
+        if rec:
+            from rich.panel import Panel
+            console.print(Panel(rec.format_terminal_card(), border_style="cyan"))
+            console.print()
+
         iteration = 0
         while iteration < self.limits.max_turns:
             iteration += 1
@@ -207,6 +219,16 @@ class AgentSessionLoop:
             self.state.current_model = winning_model.model_id
             self.state.current_provider = winning_model.provider
 
+            # Transparent routing announcement (Doc 3.6 & user visibility)
+            from ijachi_router.ui.activity import CatchyStatusSpinner, render_routing_badge, render_thought_stream, render_tool_activity
+            render_routing_badge(
+                model_id=winning_model.model_id,
+                provider=winning_model.provider,
+                cost=scored[0][2],
+                reason=chosen_reason,
+                quality_tier=getattr(winning_model, "quality_tier", 2),
+            )
+
             # Save routing explanation (FR-29)
             self.last_explanation = RoutingExplanation(
                 category=need.category,
@@ -233,7 +255,7 @@ class AgentSessionLoop:
                 provider_name=winning_model.provider,
             )
 
-            # 6. Execute model call with fallback
+            # 6. Execute model call with fallback and catchy animated spinner
             generation_res = None
             for _, candidate_model, _ in scored:
                 breaker = get_circuit_breaker(candidate_model.provider)
@@ -255,7 +277,9 @@ class AgentSessionLoop:
                         full_prompt += f"{msg['role'].title()}: {msg['content']}\n\n"
                     full_prompt += "Assistant: "
 
-                    generation_res = prov_inst.generate(full_prompt)
+                    with CatchyStatusSpinner(initial_phrase="Thinking..."):
+                        generation_res = prov_inst.generate(full_prompt, on_stream_chunk=on_stream_chunk)
+
                     breaker.record_success()
                     last_model_used = candidate_model.model_id
                     last_provider_used = candidate_model.provider
@@ -312,6 +336,10 @@ class AgentSessionLoop:
             tool_args = parsed.get("args") or parsed.get("arguments") or {}
             thought = parsed.get("thought", "")
 
+            # Stream thought process if provided (No Black Box)
+            if thought:
+                render_thought_stream(thought)
+
             # Commit tool_call event
             tc_evt = CanonicalEvent(
                 type="tool_call",
@@ -333,6 +361,7 @@ class AgentSessionLoop:
 
             if not auth_res.allowed:
                 tool_output = f"Permission denied: {auth_res.reason}"
+                render_tool_activity(tool_name, tool_args, success=False, output=tool_output)
                 self.escalation.record_tool_error()
             else:
                 exec_res = self.tools.execute(tool_name, tool_args)
@@ -340,8 +369,10 @@ class AgentSessionLoop:
                     tool_output = exec_res.output
                     if exec_res.diff:
                         tool_output += f"\n\nDiff applied:\n{exec_res.diff}"
+                    render_tool_activity(tool_name, tool_args, success=True, output=exec_res.output)
                 else:
                     tool_output = f"Error: {exec_res.error}"
+                    render_tool_activity(tool_name, tool_args, success=False, output=tool_output)
                     esc_dec = self.escalation.record_tool_error()
                     if esc_dec.escalate:
                         console.print(f"[bold yellow]⚠️ Escalating model: {esc_dec.reason}[/bold yellow]")
