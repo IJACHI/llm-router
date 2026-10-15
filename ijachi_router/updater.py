@@ -7,6 +7,7 @@ and reinstalls the package into the venv.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -57,15 +58,24 @@ def update_ijachi() -> str:
                 console.print("[dim]Reinstalling package into venv...[/dim]")
                 _run([str(venv_pip), "install", "--quiet", "--no-cache-dir", "-e", repo])
 
-            # Step 5: Re-link executables into ~/.local/bin
-            target_bin = Path.home() / ".local" / "bin"
+            # Step 5: Register global shortcut launchers
+            target_bin = None
+            for candidate in ("/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".local" / "bin")):
+                p = Path(candidate)
+                if p.is_dir() and os.access(p, os.W_OK):
+                    target_bin = p
+                    break
+            if not target_bin:
+                target_bin = Path.home() / ".local" / "bin"
+                target_bin.mkdir(parents=True, exist_ok=True)
+
             for cmd in ("ijachi", "ijachi-code", "ijachi-router", "ijr"):
                 src = target_repo / ".venv" / "bin" / cmd
                 if src.exists():
-                    target_bin.mkdir(parents=True, exist_ok=True)
                     dest = target_bin / cmd
                     dest.unlink(missing_ok=True)
-                    dest.symlink_to(src)
+                    dest.write_text(f"#!/usr/bin/env bash\nexec \"{src}\" \"$@\"\n")
+                    dest.chmod(0o755)
 
             return "Successfully updated ijachi to latest version from GitHub!"
 

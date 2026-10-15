@@ -357,5 +357,14 @@ def doctor_cmd():
     print_doctor_report()
 
 
+@main.command(name="update")
+def update_cmd():
+    """Check and pull the latest updates from GitHub."""
+    from ijachi_router.updater import update_ijachi
+    msg = update_ijachi()
+    click.echo(msg)
+
+
 if __name__ == "__main__":
     main()
+

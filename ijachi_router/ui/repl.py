@@ -80,6 +80,7 @@ class InteractiveREPL:
             "/init": "Draft a project memory file for this repo",
             "/providers": "Show provider status and circuit breakers",
             "/doctor": "Run full environment and model diagnostics",
+            "/update": "Check and pull latest updates from GitHub",
             "/exit": "Leave session and print cost summary",
         }
 
@@ -264,6 +265,12 @@ class InteractiveREPL:
 
         if cmd == "/doctor":
             print_doctor_report()
+            return False
+
+        if cmd == "/update":
+            from ijachi_router.updater import update_ijachi
+            msg = update_ijachi()
+            console.print(f"[bold cyan]{msg}[/bold cyan]\n")
             return False
 
         console.print(f"[bold red]Unknown command:[/bold red] {cmd} (Type /help for command list)\n")

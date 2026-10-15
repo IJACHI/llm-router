@@ -129,6 +129,14 @@ def update_catalog_cmd(force):
         click.echo(click.style(f"✗ {msg}", fg="red"))
 
 
+@main.command(name="update")
+def update_cmd():
+    """Check and pull latest updates from GitHub."""
+    from ijachi_router.updater import update_ijachi
+    msg = update_ijachi()
+    click.echo(msg)
+
+
 @main.command(name="train")
 def train_cmd():
     """Retrain prompt classifier in non-executable safe JSON format."""
