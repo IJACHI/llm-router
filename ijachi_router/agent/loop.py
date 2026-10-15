@@ -316,6 +316,41 @@ class AgentSessionLoop:
             # If no tool call or final answer
             if not parsed or "final_answer" in parsed or ("tool" not in parsed and "tool_call" not in parsed):
                 final_answer = parsed.get("final_answer", resp_text) if parsed else resp_text
+
+                # Check if there are still pending plan steps or if this is an unfinished autonomous task
+                pending_steps = [s for s in self.state.plan_steps if s.status == "pending"]
+                is_build_task = any(kw in user_message.lower() for kw in ("build", "create", "continue", "implement", "develop", "make", "complete", "finish", "scaffold"))
+
+                if pending_steps and (is_build_task or getattr(self.permissions, "mode", "manual") == "auto") and iteration < self.limits.max_turns - 1:
+                    next_step = pending_steps[0]
+                    # Advance previously pending steps
+                    for prev_s in self.state.plan_steps:
+                        if prev_s.id < next_step.id and prev_s.status == "pending":
+                            prev_s.status = "completed"
+
+                    console.print(f"[bold cyan]⚡ Autonomous Multi-Step Progress:[/bold cyan] [dim]Advancing to step {next_step.id}: '{next_step.title}'...[/dim]")
+
+                    # Record intermediate assistant message so model has context of its own progress
+                    ast_evt = CanonicalEvent(
+                        type="assistant_message",
+                        turn=turn_num,
+                        model={"provider": last_provider_used, "id": last_model_used},
+                        content=[{"kind": "text", "text": resp_text}],
+                        committed=True,
+                    )
+                    self.store.append_event(ast_evt)
+
+                    cont_prompt = f"Proceed directly to execute plan step {next_step.id}: '{next_step.title}'. Output the tool call (Write, Edit, or Bash) now to create or run the code directly."
+                    cont_evt = CanonicalEvent(
+                        type="user_message",
+                        turn=turn_num,
+                        content=[{"kind": "text", "text": cont_prompt}],
+                        committed=True,
+                    )
+                    self.store.append_event(cont_evt)
+                    user_message = cont_prompt
+                    continue
+
                 # Commit assistant event
                 ast_evt = CanonicalEvent(
                     type="assistant_message",
@@ -444,8 +479,15 @@ class AgentSessionLoop:
     @staticmethod
     def _extract_json_call(text: str) -> dict[str, Any] | None:
         """Extract JSON code block or function call from response text."""
+        # Preprocess text: convert Python triple quotes `"""..."""` or `'''...'''` into valid JSON string escapes
+        def _replace_triple(match: re.Match) -> str:
+            return json.dumps(match.group(1))
+
+        sanitized = re.sub(r'"""([\s\S]*?)"""', _replace_triple, text)
+        sanitized = re.sub(r"'''([\s\S]*?)'''", _replace_triple, sanitized)
+
         # 1. Standard markdown ```json code block
-        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", sanitized, re.DOTALL)
         if m:
             try:
                 data = json.loads(m.group(1))
@@ -454,12 +496,12 @@ class AgentSessionLoop:
             except Exception:
                 pass
 
-        # 2. Robust raw JSON extraction using standard JSONDecoder
+        # 2. Robust raw JSON extraction using standard JSONDecoder on sanitized text
         decoder = json.JSONDecoder()
-        for i, char in enumerate(text):
+        for i, char in enumerate(sanitized):
             if char == "{":
                 try:
-                    obj, _ = decoder.raw_decode(text[i:])
+                    obj, _ = decoder.raw_decode(sanitized[i:])
                     if isinstance(obj, dict) and any(k in obj for k in ("tool", "thought", "final_answer", "name")):
                         return obj
                 except Exception:
@@ -482,6 +524,32 @@ class AgentSessionLoop:
                     "thought": f"Calling {t_name}",
                     "tool": t_name,
                     "args": arg_map[t_name],
+                }
+
+        # 4. Fallback: Direct regex extraction for malformed JSON with code
+        t_match = re.search(r'"tool"\s*:\s*"(\w+)"', text)
+        if t_match:
+            t_name = t_match.group(1)
+            p_match = re.search(r'"path"\s*:\s*"([^"]+)"', text)
+            path_val = p_match.group(1) if p_match else ""
+
+            c_match = re.search(r'"(?:replacement_content|content)"\s*:\s*(?:"""|")([\s\S]*?)(?:"""|"[\s,]*\})', text)
+            content_val = c_match.group(1) if c_match else ""
+
+            tc_match = re.search(r'"target_content"\s*:\s*(?:"""|")([\s\S]*?)(?:"""|"[\s,]*\})', text)
+            target_val = tc_match.group(1) if tc_match else ""
+
+            th_match = re.search(r'"thought"\s*:\s*"([^"]+)"', text)
+            thought_val = th_match.group(1) if th_match else f"Executing {t_name}"
+
+            if t_name in ("Write", "Edit") and path_val and content_val:
+                args = {"path": path_val, "content": content_val, "replacement_content": content_val}
+                if target_val:
+                    args["target_content"] = target_val
+                return {
+                    "thought": thought_val,
+                    "tool": t_name,
+                    "args": args,
                 }
 
         return None

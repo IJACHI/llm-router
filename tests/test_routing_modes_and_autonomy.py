@@ -299,6 +299,55 @@ def test_extract_json_call_fallback():
     assert res4["args"] == {"command": "uvicorn main:app --reload"}
 
 
+    # 5. Model output with Python triple quotes (""")
+    t5 = '''
+    {
+      "thought": "Creating a basic FastAPI application to fetch research articles.",
+      "tool": "Edit",
+      "args": {
+        "path": "./main.py",
+        "target_content": "",
+        "replacement_content": """
+from fastapi import FastAPI, HTTPException
+import requests
+
+app = FastAPI()
+"""
+      }
+    }
+    '''
+    res5 = AgentSessionLoop._extract_json_call(t5)
+    assert res5 is not None
+    assert res5["tool"] == "Edit"
+    assert res5["args"]["path"] == "./main.py"
+    assert "FastAPI" in res5["args"]["replacement_content"]
+
+
+def test_tool_edit_auto_creates_nonexistent_file(tmp_path):
+    from ijachi_router.agent.sandbox import WorkspaceSandbox
+    from ijachi_router.agent.tools import ToolRuntime
+    from ijachi_router.session.checkpoints import CheckpointManager
+
+    state = SessionState(session_id="test_edit_create", workspace_dir=tmp_path)
+    sandbox = WorkspaceSandbox(tmp_path)
+    cp = CheckpointManager(checkpoints_dir=tmp_path / "checkpoints")
+    tools = ToolRuntime(sandbox, state, cp)
+
+    target_file = tmp_path / "main.py"
+    assert not target_file.exists()
+
+    # Model calls Edit with replacement_content on non-existent file
+    res = tools.tool_edit({
+        "path": "main.py",
+        "target_content": "",
+        "replacement_content": "from fastapi import FastAPI\napp = FastAPI()\n",
+    })
+
+    assert res.success is True
+    assert target_file.exists()
+    assert "FastAPI" in target_file.read_text()
+
+
 def test_architect_skips_run_and_execution_commands(tmp_path):
     from ijachi_router.routing.architect import detect_and_determine_tech_stack
     state = SessionState(session_id="test_run_skip", workspace_dir=tmp_path)
@@ -307,6 +356,7 @@ def test_architect_skips_run_and_execution_commands(tmp_path):
     assert detect_and_determine_tech_stack("run the application in this directory", tmp_path, state) is None
     assert detect_and_determine_tech_stack("start the server", tmp_path, state) is None
     assert detect_and_determine_tech_stack("test the app", tmp_path, state) is None
+
 
 
 

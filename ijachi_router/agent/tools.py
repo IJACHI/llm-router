@@ -212,6 +212,16 @@ class ToolRuntime:
             return ToolExecutionResult(success=False, output="", error=str(e))
 
         if not target.exists():
+            # If the file does not exist, but replacement_content is provided, auto-create it
+            content_to_write = replacement_content or args.get("content", "")
+            if content_to_write:
+                w_res = self.tool_write({"path": path_str, "content": content_to_write})
+                if w_res.success:
+                    return ToolExecutionResult(
+                        success=True,
+                        output=f"File '{path_str}' did not exist. Created new file with {len(content_to_write.splitlines())} lines.",
+                        diff=f"+ (created {path_str})",
+                    )
             return ToolExecutionResult(success=False, output="", error=f"File not found: '{path_str}'")
 
         # Stale read check (FR-03)
