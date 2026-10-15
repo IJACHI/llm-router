@@ -88,6 +88,8 @@ class AgentSessionLoop:
         self.escalation = EscalationTracker()
         self.repetition = RepetitionDetector(threshold=3)
         self.last_explanation: RoutingExplanation | None = None
+        self.last_thought: str = ""
+        self.verbose: bool = False
 
     def execute_turn(
         self,
@@ -336,9 +338,10 @@ class AgentSessionLoop:
             tool_args = parsed.get("args") or parsed.get("arguments") or {}
             thought = parsed.get("thought", "")
 
-            # Stream thought process if provided (No Black Box)
+            # Stream thought process if provided (collapsed by default, /thoughts to expand)
             if thought:
-                render_thought_stream(thought)
+                self.last_thought = thought
+                render_thought_stream(thought, expanded=self.verbose)
 
             # Commit tool_call event
             tc_evt = CanonicalEvent(
@@ -361,7 +364,7 @@ class AgentSessionLoop:
 
             if not auth_res.allowed:
                 tool_output = f"Permission denied: {auth_res.reason}"
-                render_tool_activity(tool_name, tool_args, success=False, output=tool_output)
+                render_tool_activity(tool_name, tool_args, success=False, output=tool_output, expanded=self.verbose)
                 self.escalation.record_tool_error()
             else:
                 exec_res = self.tools.execute(tool_name, tool_args)
@@ -369,10 +372,23 @@ class AgentSessionLoop:
                     tool_output = exec_res.output
                     if exec_res.diff:
                         tool_output += f"\n\nDiff applied:\n{exec_res.diff}"
-                    render_tool_activity(tool_name, tool_args, success=True, output=exec_res.output)
+                    render_tool_activity(
+                        tool_name,
+                        tool_args,
+                        success=True,
+                        output=exec_res.output,
+                        diff=exec_res.diff or "",
+                        expanded=self.verbose,
+                    )
                 else:
                     tool_output = f"Error: {exec_res.error}"
-                    render_tool_activity(tool_name, tool_args, success=False, output=tool_output)
+                    render_tool_activity(
+                        tool_name,
+                        tool_args,
+                        success=False,
+                        output=tool_output,
+                        expanded=self.verbose,
+                    )
                     esc_dec = self.escalation.record_tool_error()
                     if esc_dec.escalate:
                         console.print(f"[bold yellow]⚠️ Escalating model: {esc_dec.reason}[/bold yellow]")

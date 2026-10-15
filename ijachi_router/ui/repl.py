@@ -16,12 +16,14 @@ from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from ijachi_router.agent.loop import AgentSessionLoop
 from ijachi_router.context.memory import init_project_memory, load_project_memory
 from ijachi_router.doctor import print_doctor_report
 from ijachi_router.health import check_providers_quick, render_provider_card
 from ijachi_router.session.store import SessionStore, list_sessions
+from ijachi_router.ui.banner import _BANNER_ART
 from ijachi_router.ui.prompts import prompt_user_input
 from ijachi_router.ui.render import (
     format_status_line,
@@ -81,6 +83,8 @@ class InteractiveREPL:
             "/diff": "Show changes against last checkpoint",
             "/memory": "View or edit project memory (IJACHI.md)",
             "/init": "Draft a project memory file for this repo",
+            "/verbose": "Toggle collapsed vs expanded streaming output",
+            "/thoughts": "Display full reasoning and thought process of the last turn",
             "/providers": "Show provider status and circuit breakers",
             "/doctor": "Run full environment and model diagnostics",
             "/update": "Check and pull latest updates from GitHub",
@@ -374,6 +378,25 @@ class InteractiveREPL:
             print_doctor_report()
             return False
 
+        if cmd in ("/verbose", "/expand", "/collapse"):
+            self.loop.verbose = not getattr(self.loop, "verbose", False)
+            status = "EXPANDED (all thought processes & raw tool outputs displayed)" if self.loop.verbose else "COLLAPSED (thoughts & tool outputs cleanly folded)"
+            console.print(f"[bold green]✓ Streaming view:[/bold green] [bold cyan]{status}[/bold cyan]\n")
+            return False
+
+        if cmd in ("/thought", "/thoughts"):
+            thought = getattr(self.loop, "last_thought", "")
+            if thought:
+                console.print(Panel(
+                    thought,
+                    title="[bold magenta]💭 Full Thought Process / Rationale[/bold magenta]",
+                    border_style="magenta",
+                    padding=(1, 2),
+                ))
+            else:
+                console.print("[dim]No thought process recorded yet in this session.[/dim]\n")
+            return False
+
         if cmd == "/update":
             from ijachi_router.updater import update_ijachi
             msg = update_ijachi()
@@ -387,14 +410,19 @@ class InteractiveREPL:
         """Start the interactive loop."""
         r_mode = self.state.priority or "efficient"
         a_mode = getattr(self.loop.permissions, "mode", "manual")
-        banner = (
-            f"[bold cyan]ijachi-code v1.0[/bold cyan]  ·  [dim]{self.state.workspace_dir}[/dim]\n"
-            f"[white]Autonomous pairing assistant with continuous cross-model session routing.[/white]\n\n"
+        stream_view = "COLLAPSED" if not getattr(self.loop, "verbose", False) else "EXPANDED"
+
+        banner_art = Text(_BANNER_ART, style="bold cyan")
+        info_lines = (
+            f"\n[white]Autonomous pairing assistant with continuous cross-model session routing.[/white]\n"
+            f"[dim]Workspace:[/dim] [cyan]{self.state.workspace_dir}[/cyan]\n\n"
             f"  ⚡ [bold]Routing Mode:[/bold]    [bold green]{r_mode.upper()}[/bold green] (Cost/fit balanced) · Type [bold cyan]/mode[/bold cyan] to change\n"
             f"  🛡️  [bold]Autonomy Level:[/bold]  [bold yellow]{a_mode.upper()}[/bold yellow] · Type [bold cyan]/auto[/bold cyan] to toggle or [bold cyan]/autonomy[/bold cyan]\n"
-            f"  💡 [bold]Shortcuts:[/bold]       [cyan]/help[/cyan] (commands) · [cyan]![/cyan]cmd (shell) · [cyan]#[/cyan]note (session ledger)"
+            f"  🌊 [bold]Streaming View:[/bold]  [bold cyan]{stream_view}[/bold cyan] (Clean folded output) · Type [bold cyan]/verbose[/bold cyan] to toggle\n"
+            f"  💡 [bold]Shortcuts:[/bold]       [cyan]/help[/cyan] (commands) · [cyan]/thoughts[/cyan] (view reasoning) · [cyan]![/cyan]cmd (shell)"
         )
-        console.print(Panel(banner, border_style="cyan", padding=(0, 2)))
+        panel_content = Text.assemble(banner_art, "\n", Text.from_markup(info_lines))
+        console.print(Panel(panel_content, border_style="bright_blue", padding=(1, 2)))
 
         while True:
             user_input = prompt_user_input(

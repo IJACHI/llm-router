@@ -228,8 +228,48 @@ def test_catchy_spinner_and_activity():
     with CatchyStatusSpinner(initial_phrase="Thinking...") as spinner:
         assert spinner is not None
 
-    # Transparent rendering functions
+    # Transparent rendering functions - collapsed by default
     render_routing_badge("qwen2.5-coder:7b", "local", 0.0, "highest score", quality_tier=2)
-    render_thought_stream("Analyzing PubMed API query...")
-    render_tool_activity("Write", {"path": "main.py"}, success=True, output="Saved 100 lines")
+    render_thought_stream("Analyzing PubMed API query to design clean schemas...", expanded=False)
+    render_thought_stream("Detailed thought process with full reasoning...", expanded=True)
+
+    # Intelligently collapsed tool activities
+    render_tool_activity("Read", {"path": "src/app.py"}, success=True, output="line1\nline2\nline3")
+    render_tool_activity("Write", {"path": "main.py", "content": "import fastapi\napp = fastapi.FastAPI()"}, success=True)
+    render_tool_activity("Edit", {"path": "main.py"}, success=True, diff="+line1\n-line2")
+    render_tool_activity("Bash", {"command": "pytest"}, success=True, output="147 passed in 4.26s")
+    render_tool_activity("Bash", {"command": "pytest"}, success=False, output="FAILED test_bad.py:10")
+    render_tool_activity("Grep", {"query": "FastAPI"}, success=True, output="main.py:1\nmain.py:2")
+    render_tool_activity("Glob", {"pattern": "*.py"}, success=True, output="main.py\nutils.py")
+    render_tool_activity("ListDir", {"path": "."}, success=True, output="main.py\nrequirements.txt")
+
+
+def test_verbose_and_thoughts_slash_commands(tmp_path):
+    store = SessionStore(workspace_dir=tmp_path)
+    repl = InteractiveREPL(store=store)
+
+    # Test /verbose toggle
+    assert repl.loop.verbose is False
+    repl.handle_slash_command("/verbose")
+    assert repl.loop.verbose is True
+    repl.handle_slash_command("/verbose")
+    assert repl.loop.verbose is False
+
+    # Test /thoughts
+    repl.loop.last_thought = "Designing modular router components"
+    assert repl.handle_slash_command("/thoughts") is False
+
+
+def test_bold_ascii_banner_art():
+    from ijachi_router.ui import _BANNER_ART, get_neon_banner
+    assert _BANNER_ART is not None
+    # Verify solid block characters and non-empty lines
+    lines = [l for l in _BANNER_ART.splitlines() if l.strip()]
+    assert len(lines) == 5
+    for line in lines:
+        assert "██" in line
+
+    panel = get_neon_banner()
+    assert panel is not None
+
 

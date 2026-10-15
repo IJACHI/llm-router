@@ -12,31 +12,10 @@ from ijachi_router.ui.render import (
     render_turn_footer,
     sanitize_terminal_output,
 )
+from ijachi_router.ui.banner import _BANNER_ART, get_neon_banner
 from ijachi_router.ui.repl import InteractiveREPL
 
 console = Console()
-
-_BANNER_ART = r"""
- ██   ███████   █████    ██████  ██   ██  ██
- ██        ██  ██   ██  ██       ██   ██  ██
- ██        ██  ███████  ██       ███████  ██
- ██   ██   ██  ██   ██  ██       ██   ██  ██
- ██    █████   ██   ██   ██████  ██   ██  ██
-"""
-
-
-def get_neon_banner() -> Panel:
-    """Renders high-impact bold ASCII banner for ijachi-code."""
-    banner_text = Text(_BANNER_ART, style="bold cyan")
-    subtitle = Text("⚡ One Prompt. Best Model. Autonomous Workspace Agent.", style="bold magenta italic")
-    combined = Text.assemble(banner_text, "\n", subtitle, justify="center")
-    return Panel(
-        combined,
-        title="[bold yellow]✨ IJACHI CODE ✨[/bold yellow]",
-        subtitle="[dim cyan]v1.0.0 • 20 Providers • Autonomous Coding Engine[/dim cyan]",
-        border_style="bright_blue",
-        padding=(1, 2),
-    )
 
 
 def print_banner() -> None:
