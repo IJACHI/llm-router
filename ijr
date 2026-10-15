@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Zero-activation launcher for ijr (alias for ijachi-router)
+# ==============================================================================
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$DIR/ijachi-router" "$@"

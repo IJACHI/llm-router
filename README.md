@@ -43,17 +43,22 @@ auto · claude-sonnet-4-5 · ctx 38% · turn $0.0042 · session $0.0187 / $2.00
 
 ## ⚡ 60-Second Quickstart
 
+Install `ijachi` globally with a single command (no virtual environment activation required):
+
 ```bash
-# Recommended installation via pipx or pip
-pipx install ijachi-llm-router
-# or: pip install ijachi-llm-router
+# 🚀 Universal One-Line Installer (macOS & Linux)
+curl -fsSL https://raw.githubusercontent.com/IJACHI/llm-router/main/install.sh | bash
+
+# Or via pipx / uv (isolated global CLI standard)
+pipx install git+https://github.com/IJACHI/llm-router.git
+# or: uv tool install git+https://github.com/IJACHI/llm-router.git
 
 # Set at least one provider key (or run Ollama locally with no key)
 export ANTHROPIC_API_KEY=sk-ant-...
 # and/or
 export OPENAI_API_KEY=sk-...
 
-# Start the interactive pair programmer
+# Launch anywhere in any terminal window
 ijachi-code
 ```
 

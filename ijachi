@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Zero-activation launcher for ijachi (alias for ijachi-code)
+# ==============================================================================
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$DIR/ijachi-code" "$@"

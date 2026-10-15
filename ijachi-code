@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Zero-activation launcher for ijachi-code
+# Automatically sets up and executes inside the local environment on demand
+# ==============================================================================
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -d "$DIR/.venv" ]; then
+    echo "⚡ Initializing ijachi environment (one-time automatic setup)..."
+    python3 -m venv "$DIR/.venv"
+    "$DIR/.venv/bin/pip" install --quiet --no-cache-dir --upgrade pip
+    "$DIR/.venv/bin/pip" install --quiet --no-cache-dir -e "$DIR"
+fi
+
+exec "$DIR/.venv/bin/ijachi-code" "$@"
