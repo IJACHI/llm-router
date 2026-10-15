@@ -443,17 +443,45 @@ class AgentSessionLoop:
 
     @staticmethod
     def _extract_json_call(text: str) -> dict[str, Any] | None:
-        """Extract JSON code block from response text."""
+        """Extract JSON code block or function call from response text."""
+        # 1. Standard markdown ```json code block
         m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if m:
             try:
-                return json.loads(m.group(1))
+                data = json.loads(m.group(1))
+                if isinstance(data, dict):
+                    return data
             except Exception:
                 pass
-        m = re.search(r"(\{\s*\"(?:tool|thought|final_answer)\".*?\})", text, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group(1))
-            except Exception:
-                pass
+
+        # 2. Robust raw JSON extraction using standard JSONDecoder
+        decoder = json.JSONDecoder()
+        for i, char in enumerate(text):
+            if char == "{":
+                try:
+                    obj, _ = decoder.raw_decode(text[i:])
+                    if isinstance(obj, dict) and any(k in obj for k in ("tool", "thought", "final_answer", "name")):
+                        return obj
+                except Exception:
+                    continue
+
+        # 3. Fallback: Parse inline function calls like ListDir(".") or Bash("ls")
+        fn_match = re.search(r"\b(ListDir|Read|Write|Edit|Glob|Grep|Bash)\s*\(\s*[\"']([^\"']+)[\"']\s*\)", text)
+        if fn_match:
+            t_name = fn_match.group(1)
+            arg_val = fn_match.group(2)
+            arg_map = {
+                "ListDir": {"path": arg_val},
+                "Bash": {"command": arg_val},
+                "Read": {"path": arg_val},
+                "Glob": {"pattern": arg_val},
+                "Grep": {"query": arg_val},
+            }
+            if t_name in arg_map:
+                return {
+                    "thought": f"Calling {t_name}",
+                    "tool": t_name,
+                    "args": arg_map[t_name],
+                }
+
         return None

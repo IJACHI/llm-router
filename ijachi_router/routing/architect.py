@@ -118,11 +118,13 @@ def detect_and_determine_tech_stack(
         return None
 
     # 2. If prompt is not a project creation or scaffolding request, skip
-    creation_keywords = [
-        "build", "create", "scaffold", "develop", "implement", "make",
-        "website", "app", "application", "newsletter", "pipeline", "service", "tool",
-    ]
-    if not any(kw in p_lower for kw in creation_keywords):
+    creation_verbs = ["build", "create", "scaffold", "develop", "implement", "make a", "generate a", "start a new", "code a"]
+    if not any(v in p_lower for v in creation_verbs):
+        return None
+
+    # Exclude execution, inspection, or running requests
+    execution_keywords = ["run", "launch", "serve", "execute", "start the", "test", "debug", "explain", "check", "kill"]
+    if any(re.search(r"\b" + re.escape(kw) + r"\b", p_lower) for kw in execution_keywords):
         return None
 
     # 3. If user explicitly specified a tech stack in their prompt, honor it

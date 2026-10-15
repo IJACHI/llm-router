@@ -273,3 +273,40 @@ def test_bold_ascii_banner_art():
     assert panel is not None
 
 
+def test_extract_json_call_fallback():
+    from ijachi_router.agent.loop import AgentSessionLoop
+
+    # 1. JSON code block
+    t1 = '```json\n{"tool": "ListDir", "args": {"path": "."}}\n```'
+    assert AgentSessionLoop._extract_json_call(t1)["tool"] == "ListDir"
+
+    # 2. Raw JSON
+    t2 = '{"tool": "Bash", "args": {"command": "pytest"}}'
+    assert AgentSessionLoop._extract_json_call(t2)["tool"] == "Bash"
+
+    # 3. Inline function call fallback
+    t3 = 'Step 2: List files\nListDir(".")\nPlease provide output.'
+    res = AgentSessionLoop._extract_json_call(t3)
+    assert res is not None
+    assert res["tool"] == "ListDir"
+    assert res["args"] == {"path": "."}
+
+    # 4. Bash inline function call fallback
+    t4 = 'Run server:\nBash("uvicorn main:app --reload")'
+    res4 = AgentSessionLoop._extract_json_call(t4)
+    assert res4 is not None
+    assert res4["tool"] == "Bash"
+    assert res4["args"] == {"command": "uvicorn main:app --reload"}
+
+
+def test_architect_skips_run_and_execution_commands(tmp_path):
+    from ijachi_router.routing.architect import detect_and_determine_tech_stack
+    state = SessionState(session_id="test_run_skip", workspace_dir=tmp_path)
+
+    # "run the application in this directory" should NOT trigger architecture determination
+    assert detect_and_determine_tech_stack("run the application in this directory", tmp_path, state) is None
+    assert detect_and_determine_tech_stack("start the server", tmp_path, state) is None
+    assert detect_and_determine_tech_stack("test the app", tmp_path, state) is None
+
+
+

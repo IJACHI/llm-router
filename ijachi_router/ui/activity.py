@@ -7,9 +7,10 @@ and transparent output for routing, thought processes, decisions, and tool calls
 from __future__ import annotations
 
 import itertools
+import re
+import sys
 import threading
 import time
-import re
 from typing import Callable
 
 from rich.console import Console
@@ -58,12 +59,14 @@ class CatchyStatusSpinner:
             frame = spinner_frames[frame_idx % len(spinner_frames)]
             frame_idx += 1
 
-            # Render single-line status
-            console.print(f"\r[bold cyan]{frame}[/bold cyan] [dim white]{current_phrase}[/dim white]   ", end="")
+            # Render single-line status using ANSI clear-to-end-of-line (\033[K)
+            sys.stdout.write(f"\r\033[K\033[1;36m{frame}\033[0m \033[2m{current_phrase}\033[0m")
+            sys.stdout.flush()
             time.sleep(0.1)
 
         # Clear line on stop
-        console.print("\r" + " " * 70 + "\r", end="")
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
 
     def start(self):
         self._stop_event.clear()
