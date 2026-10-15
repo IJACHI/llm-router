@@ -1,7 +1,7 @@
 """Interactive prompt input with autocompletion and shortcuts.
 
 Document 6.3:
-- Multi-line input (Shift+Enter or \\+Enter for newline; Enter submits)
+- Multi-line input (Alt+Enter, Ctrl+J, or \\+Enter for newline; Enter submits)
 - / slash command autocomplete
 - @ file path autocomplete (attaches file content as context)
 - !command shortcut to run a shell command through permissions
@@ -14,18 +14,13 @@ import os
 from pathlib import Path
 from typing import Callable
 
-from prompt_toolkit import Application
+from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout
-from prompt_toolkit.layout.containers import HSplit, Window
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.styles import Style
-from prompt_toolkit.widgets import Frame
 
 
 class SlashAndFileCompleter(Completer):
@@ -61,12 +56,46 @@ class SlashAndFileCompleter(Completer):
 
 
 _PROMPT_STYLE = Style.from_dict({
-    "frame": "fg:#00e5ff",
-    "frame.border": "fg:#00e5ff",
-    "frame.label": "fg:#00e5ff bold",
-    "": "fg:#ffffff bg:#0d1117",
-    "toolbar": "bg:#0d1117 fg:#4a9eff",
+    "prompt": "fg:#00e5ff bold",
+    "bottom-toolbar": "bg:#0d1117 fg:#4a9eff",
 })
+
+_session: PromptSession | None = None
+
+
+def get_prompt_session(history_file: Path, completer: Completer) -> PromptSession:
+    """Retrieve or initialize the persistent PromptSession."""
+    global _session
+    if _session is None:
+        history = FileHistory(str(history_file))
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        def _handle_enter(event):
+            buf = event.current_buffer
+            if buf.text.endswith("\\"):
+                buf.delete_before_cursor(count=1)
+                buf.insert_text("\n")
+            else:
+                buf.validate_and_handle()
+
+        @kb.add("escape", "enter")
+        @kb.add("c-j")
+        def _newline(event):
+            event.current_buffer.insert_text("\n")
+
+        _session = PromptSession(
+            history=history,
+            completer=completer,
+            complete_while_typing=True,
+            auto_suggest=AutoSuggestFromHistory(),
+            key_bindings=kb,
+            style=_PROMPT_STYLE,
+            multiline=False,
+        )
+    else:
+        _session.completer = completer
+    return _session
 
 
 def prompt_user_input(
@@ -75,74 +104,16 @@ def prompt_user_input(
     history_file: Path,
 ) -> str | None:
     """Read a user message via prompt_toolkit with completion and multiline support."""
-    history = FileHistory(str(history_file))
     completer = SlashAndFileCompleter(commands)
-    submitted: list[str] = []
-    cancelled: list[bool] = []
+    session = get_prompt_session(history_file, completer)
 
-    buf = Buffer(
-        history=history,
-        completer=completer,
-        complete_while_typing=True,
-        auto_suggest=AutoSuggestFromHistory(),
-        multiline=True,
-    )
-
-    kb = KeyBindings()
-
-    @kb.add("enter")
-    def _submit(event):
-        text = buf.text
-        # Support \ at end of line for manual multiline
-        if text.endswith("\\"):
-            buf.delete_before_cursor(count=1)
-            buf.insert_text("\n")
-            return
-        submitted.append(text.strip())
-        event.app.exit()
-
-    @kb.add("s-enter")
-    def _newline(event):
-        buf.insert_text("\n")
-
-    @kb.add("c-c")
-    def _interrupt(event):
-        cancelled.append(True)
-        event.app.exit()
-
-    @kb.add("c-d")
-    def _eof(event):
-        submitted.append("__EXIT__")
-        event.app.exit()
-
-    layout = Layout(
-        HSplit([
-            Frame(
-                Window(
-                    BufferControl(buffer=buf),
-                    height=2,
-                    get_line_prefix=lambda i, wrap_count: "  ",
-                ),
-                title=" ✍  Type a message (/ for commands, @ for files) ",
-                style="class:frame",
-            ),
-            Window(
-                FormattedTextControl(toolbar_fn),
-                height=1,
-                style="class:toolbar",
-            ),
-        ])
-    )
-
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        style=_PROMPT_STYLE,
-        full_screen=False,
-        mouse_support=False,
-    )
-    app.run()
-
-    if cancelled:
-        return None
-    return submitted[0] if submitted else None
+    try:
+        text = session.prompt(
+            [("class:prompt", "> ")],
+            bottom_toolbar=toolbar_fn,
+        )
+        return text.strip()
+    except KeyboardInterrupt:
+        return ""
+    except EOFError:
+        return "__EXIT__"

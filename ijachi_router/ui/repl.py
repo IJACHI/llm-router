@@ -83,9 +83,9 @@ class InteractiveREPL:
             "/exit": "Leave session and print cost summary",
         }
 
-    def _toolbar_fn(self) -> HTML:
+    def _toolbar_fn(self) -> str:
         mode = "pinned" if self.state.pinned_model else "auto"
-        status = format_status_line(
+        return format_status_line(
             mode=mode,
             model=self.state.current_model or self.state.pinned_model or "auto",
             ctx_percent=min(100, int((self.state.tokens_cached_estimate / 128_000) * 100)),
