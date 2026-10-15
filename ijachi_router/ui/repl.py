@@ -325,7 +325,6 @@ class InteractiveREPL:
                 continue
 
             # Process prompt
-            console.print(f"\n[bold white]> {user_input}[/bold white]\n")
             try:
                 turn_res = self.loop.execute_turn(user_input)
                 self.last_turn_cost = turn_res.cost_usd

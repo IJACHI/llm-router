@@ -107,11 +107,13 @@ def prompt_user_input(
     completer = SlashAndFileCompleter(commands)
     session = get_prompt_session(history_file, completer)
 
+    status = toolbar_fn()
+    if status:
+        from rich.console import Console
+        Console().print(f"[dim]{status}[/dim]")
+
     try:
-        text = session.prompt(
-            [("class:prompt", "> ")],
-            bottom_toolbar=toolbar_fn,
-        )
+        text = session.prompt([("class:prompt", "> ")])
         return text.strip()
     except KeyboardInterrupt:
         return ""
