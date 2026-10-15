@@ -38,6 +38,8 @@ class CircuitBreaker:
     threshold: int = 3          # failures before opening
     window_s: float = 60.0      # rolling window in seconds
     cooldown_s: float = 30.0    # open → half-open wait
+    failure_threshold: int | None = None
+    cooldown_seconds: float | None = None
 
     # Internal state
     _failures: deque = field(default_factory=deque, init=False, repr=False)
@@ -45,7 +47,15 @@ class CircuitBreaker:
     _half_open: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self):
+        if self.failure_threshold is not None:
+            self.threshold = self.failure_threshold
+        if self.cooldown_seconds is not None:
+            self.cooldown_s = self.cooldown_seconds
         self._failures = deque()
+
+    def can_execute(self) -> bool:
+        """Alias for allow_request."""
+        return self.allow_request()
 
     # -- State queries -------------------------------------------------------
 
@@ -110,6 +120,10 @@ def get_breaker(provider_name: str, **kwargs) -> CircuitBreaker:
     return _breakers[provider_name]
 
 
+# Alias for compatibility
+get_circuit_breaker = get_breaker
+
+
 def reset_breakers() -> None:
     """Reset all circuit breakers — useful for testing."""
     _breakers.clear()
@@ -122,13 +136,15 @@ def reset_breakers() -> None:
 def route_with_fallback(
     candidates: list["Provider"],
     prompt: str,
+    category: str = "simple-qa",
     **kwargs,
 ) -> GenerationResult:
     """Try each candidate provider in order, falling back on ProviderError.
 
     Args:
         candidates: Ordered list of Provider instances to try.
-        prompt:     The (possibly optimized) prompt string.
+        prompt:     The raw base prompt string.
+        category:   Category of the prompt for custom optimization.
         **kwargs:   Forwarded to ``provider.generate()``.
 
     Returns:
@@ -137,6 +153,8 @@ def route_with_fallback(
     Raises:
         ProviderError: If every candidate fails (message includes all errors).
     """
+    from ijachi_router.optimizer import optimize_prompt
+
     errors: list[str] = []
 
     for provider in candidates:
@@ -146,8 +164,10 @@ def route_with_fallback(
             errors.append(f"{provider.name}: circuit open (skipped)")
             continue
 
+        optimized_prompt = optimize_prompt(prompt, provider.name, category)
+
         try:
-            result = provider.generate(prompt, **kwargs)
+            result = provider.generate(optimized_prompt, **kwargs)
             breaker.record_success()
             return result
         except ProviderError as exc:

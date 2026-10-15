@@ -160,3 +160,24 @@ class TestRouteWithFallback:
         result = route_with_fallback([p1, p2], "hello")
         p1.generate.assert_not_called()
         assert result.provider == "healthy"
+
+    def test_dynamic_prompt_optimization_on_fallback(self):
+        """Each fallback provider should receive a prompt optimized specifically for it."""
+        p_anthropic = _make_provider("anthropic", raises=True)
+        p_openai = _make_provider("openai", result_text="openai success")
+
+        result = route_with_fallback([p_anthropic, p_openai], "hello", category="code")
+
+        assert result.provider == "openai"
+        assert result.text == "openai success"
+
+        # Assert anthropic provider received anthropic-optimized prompt
+        p_anthropic.generate.assert_called_once()
+        call_args_anthropic = p_anthropic.generate.call_args[0]
+        assert "<task>" in call_args_anthropic[0]
+
+        # Assert openai provider received openai-optimized prompt (cross-provider tags stripped)
+        p_openai.generate.assert_called_once()
+        call_args_openai = p_openai.generate.call_args[0]
+        assert "You are an expert software engineer" in call_args_openai[0]
+        assert "<task>" not in call_args_openai[0]  # Verify Anthropic tags were cleaned

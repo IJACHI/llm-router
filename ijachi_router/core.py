@@ -166,11 +166,7 @@ class Router:
                 "ANTHROPIC_API_KEY, OPENAI_API_KEY, or run Ollama locally."
             )
 
-        # 3. Optimize prompt for the top candidate
-        top_model = ranked[0]
-        optimized = optimize_prompt(prompt, top_model.provider, category)
-
-        # 4. Build provider instances
+        # 3. Build provider instances
         providers = []
         for m in ranked:
             try:
@@ -178,8 +174,8 @@ class Router:
             except (KeyError, Exception):
                 continue
 
-        # 5. Route with fallback
-        result = route_with_fallback(providers, optimized, **kwargs)
+        # 4. Route with fallback (dynamically optimizes prompt per provider)
+        result = route_with_fallback(providers, prompt, category=category, **kwargs)
 
         # 6. Log
         log_result(result)

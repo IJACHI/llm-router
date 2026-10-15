@@ -45,10 +45,10 @@ dev       = [
 ]
 
 [project.scripts]
-ijachi = "cli:code_main"
-ijachi-code = "cli:code_main"
-ijachi-router = "cli:main"
-ijr = "cli:main"
+ijachi = "ijachi_router.cli.code:main"
+ijachi-code = "ijachi_router.cli.code:main"
+ijachi-router = "ijachi_router.cli.router:main"
+ijr = "ijachi_router.cli.router:main"
 
 [project.urls]
 Homepage   = "https://github.com/ijachi/ijachi-llm-router"

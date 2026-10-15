@@ -7,6 +7,9 @@ Keeping this fast and free is essential to the cost-saving pitch.
 
 from __future__ import annotations
 
+import re
+
+
 
 _REASONING_CATEGORIES = {"reasoning", "math", "code"}
 _CREATIVE_CATEGORIES = {"creative"}
@@ -95,9 +98,46 @@ _OPTIMIZERS = {
 }
 
 
+def _clean_cross_provider_pollution(prompt: str) -> str:
+    """Strip XML tags, preambles, and markers injected by other providers' optimizers."""
+    # 1. Clean Anthropic tags
+    prompt = re.sub(r"</?task>", "", prompt)
+    prompt = re.sub(r"<instructions>.*?</instructions>", "", prompt, flags=re.DOTALL)
+    
+    # 2. Clean OpenAI preambles
+    preambles = [
+        "You are an expert software engineer. Provide clean, well-commented code with brief explanations.",
+        "You are a precise mathematics expert. Show your work step by step.",
+        "You are a skilled creative writer. Produce vivid, engaging content.",
+        "You are a concise editor. Provide clear, accurate summaries.",
+        "You are an analytical expert. Reason carefully and consider multiple perspectives.",
+        "You are a careful analyst. Read all provided content before responding.",
+        "Answer the following question directly and accurately.",
+    ]
+    for preamble in preambles:
+        prompt = prompt.replace(preamble, "")
+        
+    # 3. Clean Mistral tags
+    prompt = re.sub(r"\[/?INST\]", "", prompt)
+    
+    # 4. Clean Gemini category headers
+    prompt = re.sub(r"\[Task: [A-Z_-]+\]", "", prompt)
+    prompt = prompt.replace("\nPlease respond clearly and accurately.", "")
+    
+    # 5. Clean Groq preambles
+    prompt = prompt.replace("System: Direct, fast, accurate output.\nTask: ", "")
+    
+    # 6. Clean DeepSeek preambles
+    prompt = prompt.replace("Please solve the following task with rigorous step-by-step reasoning:\n\n", "")
+    prompt = prompt.replace("Provide a clean, precise answer to the following request:\n\n", "")
+    
+    return prompt.strip()
+
+
 def optimize_prompt(prompt: str, provider: str, category: str = "simple-qa") -> str:
     """Return an optimized version of *prompt* for *provider*."""
+    cleaned = _clean_cross_provider_pollution(prompt)
     optimizer = _OPTIMIZERS.get(provider)
     if optimizer is None:
-        return prompt
-    return optimizer(prompt, category)
+        return cleaned
+    return optimizer(cleaned, category)

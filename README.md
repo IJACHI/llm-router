@@ -5,372 +5,244 @@
 <h1 align="center">ijachi-llm-router</h1>
 
 <p align="center">
-  <strong>One prompt. Best model. Automatic fallback.</strong>
+  <strong>The terminal coding assistant that routes every turn to the cheapest adequate model without losing session context.</strong>
 </p>
 
-`ijachi-llm-router` classifies your prompt, picks the cheapest model that can handle it well, rewrites it for that model's quirks, and falls back automatically if a provider is down — all in one simple command.
-
-```
-$ ijachi-router route "What is the capital of France?"
-Paris
-
-[model=gpt-4o-mini  cost=$0.0001  latency=0.6s]
-
-$ ijachi-router route "Write a Python function to sort a list"
-def sort_list(lst):
-    return sorted(lst)
-
-[model=claude-haiku-4-5  cost=$0.0003  latency=0.8s]
-
-$ ijachi-router stats
-
-ijachi-llm-router usage  42 calls · $0.0127 total · 1.24s avg latency
-
-╭────────────────────┬──────────┬───────┬───────────┬─────────────╮
-│ Model              │ Provider │ Calls │ Cost (USD)│ Avg Latency │
-├────────────────────┼──────────┼───────┼───────────┼─────────────┤
-│ gpt-4o-mini        │ openai   │    18 │   $0.0014 │      0.62s  │
-│ claude-haiku-4-5   │ anthropic│    14 │   $0.0028 │      0.84s  │
-│ claude-sonnet-4-5  │ anthropic│     7 │   $0.0075 │      2.10s  │
-│ llama3.2:3b        │ local    │     3 │   $0.0000 │      3.50s  │
-╰────────────────────┴──────────┴───────┴───────────┴─────────────╯
-```
-
----
-
-## Why?
-
-| Without ijachi-llm-router | With ijachi-llm-router |
-|---|---|
-| You hardcode one model for everything | Routes each prompt to the right model |
-| Simple questions cost as much as hard ones | Trivial prompts → cheap/fast model |
-| One provider outage = your app is down | Automatic fallback across 20 providers |
-| No visibility into spend | `ijachi-router stats` & Web Dashboard show cost |
-
----
-
-## 60-second quickstart
+`ijachi-llm-router` combines Claude Code-style interactive terminal pair programming with cost-aware multi-model routing. Every turn is sent to the cheapest model that can handle the task, across 20 providers, with automatic fallback and seamless session continuity.
 
 ```bash
-pip install ijachi-llm-router
+$ ijachi-code
+```
+```text
+ijachi-code v1.0 ~/projects/api-server branch: feature/auth
+──────────────────────────────────────────────────────────────────
+> Add rate limiting to the login endpoint and write tests
+[route] code-edit · complexity 0.62 · claude-sonnet-4-5
 
-# Set at least one provider key (or run Ollama locally — no key needed)
+* Read src/auth/routes.py ok
+* Grep 'limiter' in src/ 2 matches
+* Edit src/auth/routes.py +14 -2 [awaiting approval]
+
+Allow? [y] once [s] this session [a] always [n] no [e] explain: y
+──────────────────────────────────────────────────────────────────
+auto · claude-sonnet-4-5 · ctx 38% · turn $0.0042 · session $0.0187 / $2.00
+> _
+```
+
+---
+
+## 🧭 Command Surface & Naming
+
+| Command | Role | Description |
+|---|---|---|
+| **`ijachi-code`** (alias **`ijachi`**) | Coding Assistant | Full interactive REPL pair programmer, agent loop, file editing, and test repair. |
+| **`ijachi-router`** (alias **`ijr`**) | Admin & Routing | One-shot routing, stats, catalog updates, classifier training, server, and doctor. |
+| **`gh router`** | GitHub CLI Extension | Wrapper executing `ijachi-router` from inside the GitHub CLI. |
+
+---
+
+## ⚡ 60-Second Quickstart
+
+```bash
+# Recommended installation via pipx or pip
+pipx install ijachi-llm-router
+# or: pip install ijachi-llm-router
+
+# Set at least one provider key (or run Ollama locally with no key)
 export ANTHROPIC_API_KEY=sk-ant-...
 # and/or
 export OPENAI_API_KEY=sk-...
 
-# Route your first prompt (use ijachi-router or short alias ijr)
-ijachi-router route "Explain quicksort in Python"
+# Start the interactive pair programmer
+ijachi-code
 ```
 
-**Zero-cost test with Ollama (no API keys needed):**
+**Zero-cost local model path (Ollama):**
 ```bash
-# Install Ollama from https://ollama.com, then:
-ollama pull llama3.2:3b
-ijachi-router route "What is the speed of light?"
+ollama pull llama3.1:8b
+ijachi-code --local-only
 ```
 
 ---
 
-## Supported providers & models
+## 📊 Feature Maturity
 
-`ijachi-llm-router` comes preconfigured out-of-the-box with **20 major LLM service providers** and **40+ top models** in [`models.yaml`](models.yaml).
+| Feature | Status | Description |
+|---|---|---|
+| **Multi-Model Routing** | 🟢 Stable | 20 providers, cost scoring, prompt optimization, automatic fallback |
+| **Session Continuity** | 🟢 Stable | Append-only canonical event log, facts ledger, working set, crash recovery |
+| **Permission Sandbox** | 🟢 Stable | R0-R4 risk tiers, compound command analyzer, env scrubbing, checkpoints & `/undo` |
+| **Interactive REPL** | 🟢 Stable | Full slash commands (`/why`, `/context`, `/cost`, `/undo`, `/model`, etc.) |
+| **Non-interactive / CI** | 🟢 Stable | `-p` print mode, stdin piping, machine-readable `--json` events, auto-safe exit codes |
+| **Test-Repair Loop (`fix`)** | 🟡 Beta | Automated test runner, failure diagnosis, and repair loop |
+| **Symbol Indexer (`index`)** | 🟡 Beta | Workspace symbol cache in `.ijachi/symbols.json` |
+| **Consensus Mode** | 🟡 Beta | Two-model peer review and synthesis (`ijachi-code consensus`) |
+| **Commit Helper** | 🟡 Beta | Conventional commit generation from staged git diff (`ijachi-code commit`) |
+| **OS Sandbox (`--sandbox`)**| ⚪ Planned | Bubblewrap / Landlock container containment for commands (v1.1) |
 
-| Provider | Model | Speed | Cost (in/out per 1K) | Best for |
+---
+
+## 💡 What Makes It Different
+
+### 1. Cost-Aware Multi-Model Routing
+Each turn is classified by category (code, debugging, math, reasoning, creative, summarization, long-context, simple-qa) and complexity. The router scores candidates considering expected input/output cost, speed tier, and current model stickiness.
+
+### 2. Session Continuity Across Models (The Core Differentiator)
+*The session owns the state, not the model.* Models are stateless workers. The session engine maintains:
+- **Canonical Event Log** (`events.jsonl`): Provider-neutral history of every message, tool call, and result.
+- **Facts & Decisions Ledger**: Pinned user constraints and architectural decisions that survive compaction verbatim.
+- **Working Set**: Tracks file content hashes to detect external changes and stale reads.
+- **File Checkpoints**: Automatic file snapshots before any edit, restored instantly with `/undo`.
+
+### 3. Agent Safety & Sandboxing
+- **Permission Modes**: `ask` (default), `plan` (read-only), `accept-edits`, and `auto-safe` (for CI).
+- **Subprocess Environment Scrubbing**: Provider keys (`*_API_KEY`, `*_SECRET`, `AWS_*`) are stripped from child processes.
+- **Path Traversal Protection**: Refuses edits or writes that escape the workspace roots.
+- **Secrets Redaction**: Redacts API keys, tokens, and credentials from tool output before context injection.
+
+---
+
+## ⌨️ Slash Commands (Interactive REPL)
+
+Inside `ijachi-code`, press `/` for autocomplete:
+
+| Command | Function |
+|---|---|
+| `/help` | List available commands, shortcuts, and keybindings |
+| `/model [id\|auto]` | Show, pin, or unpin the active model |
+| `/priority [cost\|speed\|quality\|balanced]` | Change routing priority mid-session |
+| `/budget [USD]` | Show or set session budget cap |
+| `/cost` | Spend, tokens, cache savings, and per-model breakdown |
+| `/why` | Explain the routing decision for the last turn (scores, filters, candidates) |
+| `/context` | Show context window usage by layer (system, memory, ledger, summary, files) |
+| `/compact` | Compact conversation into a structured summary |
+| `/clear` | Start a fresh session (old session remains saved and resumable) |
+| `/resume [id]` | Browse and resume previous sessions |
+| `/undo` | Revert the last file change set to its checkpoint |
+| `/checkpoint [name]` | Create a named file checkpoint |
+| `/diff` | Show all uncommitted changes made in this session |
+| `/memory` | View or edit the project memory file (`IJACHI.md`) |
+| `/init` | Analyze repository and draft project memory file |
+| `/providers` | Show detected providers, health, and circuit-breaker status |
+| `/doctor` | Run full environment diagnostics (keys, network, permissions) |
+| `/exit` | Leave session and print cost summary |
+
+**Shortcuts:**
+- `!command`: Runs a shell command through the permission sandbox.
+- `#note`: Appends a fact or note to the project memory file.
+- `@path`: Autocompletes and attaches file contents into context.
+
+---
+
+## 🤖 Supported Providers (20 Backends)
+
+Preconfigured in [`models.yaml`](models.yaml):
+
+| Provider | Key / Auth | Speed Tier | Quality Tier | Default Models |
 |---|---|---|---|---|
-| Cerebras Cloud | `llama3.1-70b` | ⚡⚡ ultra-fast (1800+ tok/s) | $0.0006 / $0.0006 | fast code, reasoning |
-| SambaNova LPU | `Meta-Llama-3.1-405B` | ⚡ fast | $0.005 / $0.005 | frontier reasoning, math |
-| Fireworks AI | `llama-v3p1-70b-instruct` | ⚡ fast | $0.0009 / $0.0009 | code, reasoning |
-| AWS Bedrock | `claude-3-5-sonnet-v2` | 🔄 medium | $0.003 / $0.015 | enterprise code & reasoning |
-| Azure OpenAI | `gpt-4o` | 🔄 medium | $0.0025 / $0.01 | enterprise code & math |
-| Hugging Face | `Mistral-7B-Instruct-v0.3` | ⚡ fast | $0.0002 / $0.0002 | simple-qa, summarization |
-| Custom / vLLM | `local-model` | ⚡ fast | **free / custom** | custom self-hosted server |
-| Kimi (Moonshot) | `kimi-latest` | ⚡ fast | $0.0012 / $0.0012 | code, reasoning, long-context |
-| Qwen (Alibaba) | `qwen-max` | 🔄 medium | $0.0028 / $0.0084 | reasoning, math, code |
-| Perplexity AI | `sonar-pro` | ⚡ fast | $0.003 / $0.015 | simple-qa, web reasoning |
-| Cohere AI | `command-r-plus` | 🔄 medium | $0.0025 / $0.01 | reasoning, long-context |
-| DeepSeek Cloud | `deepseek-chat` (V3) | ⚡ fast | $0.00014 / $0.00028 | simple-qa, code, summarization |
-| DeepSeek Cloud | `deepseek-reasoner` (R1) | 🔄 medium | $0.00055 / $0.00219 | reasoning, math, complex code |
-| Google Gemini | `gemini-2.5-flash` | ⚡ fast | $0.000075 / $0.0003 | simple-qa, summarization |
-| Google Gemini | `gemini-2.5-pro` | 🔄 medium | $0.00125 / $0.005 | code, reasoning, math |
-| Groq LPU | `llama-3.3-70b-versatile` | ⚡ ultra-fast | $0.00059 / $0.00079 | fast code, reasoning |
-| OpenAI | `gpt-4o-mini` | ⚡ fast | $0.00015 / $0.0006 | simple-qa, summarization |
-| OpenAI | `gpt-4o` | 🔄 medium | $0.0025 / $0.01 | code, reasoning, math |
-| Anthropic | `claude-3-7-sonnet` | ⚡ fast | $0.003 / $0.015 | code, reasoning, math |
-| Mistral AI | `codestral-latest` | ⚡ fast | $0.0003 / $0.0009 | code, refactoring |
-| Together AI | `Llama-3.3-70B-Turbo` | ⚡ fast | $0.00088 / $0.00088 | open source cloud |
-| OpenRouter | `openrouter/auto` | 🔄 medium | $0.001 / $0.002 | model aggregation |
-| Local (Ollama) | `llama3.2:3b` | ⚡ fast | **free** | simple-qa, summarization |
-
-> **Zero Setup**: Export your key (e.g. `export CEREBRAS_API_KEY=...` or `export AWS_ACCESS_KEY_ID=...`) to activate any provider.
-> **Auto-Updating Catalog**: Run `ijachi-router update-catalog` anytime to fetch dynamic pricing updates from remote model registries.
-
----
-
-## CLI reference
-
-```bash
-# Route a prompt (auto-selects best model)
-ijachi-router route "Your prompt here"
-# or short alias:
-ijr route "Your prompt here"
-
-# Override routing priority for one call
-ijachi-router route "Summarise this doc" --priority cost      # cheapest model wins
-ijachi-router route "Prove P ≠ NP" --priority quality         # strongest model wins
-ijachi-router route "What time is it?" --priority speed        # fastest model wins
-
-# Cap cost per call (skips models above threshold)
-ijachi-router route "Explain neural nets" --max-cost 0.01
-
-# Dedicated coding assistant mode
-ijachi-code "Write a Python script to sort a list"
-
-# [AGENTIC] Autonomous multi-step workspace task (reads/edits files, runs commands)
-ijachi-code agent "Refactor helper function in main.py and run pytest"
-
-# [AGENTIC] Interactive REPL terminal session with file modification approval prompts
-ijachi-code chat
-
-# 🔁 [KILLER FEATURE] Auto-Fixing Test Repair Loop (runs tests, captures traces, auto-fixes until 100% pass)
-ijachi-code fix --command "pytest"
-
-# ⚖️ [KILLER FEATURE] Multi-Model Consensus Peer Review (queries 2 top models & synthesizes peer-reviewed output)
-ijachi-code consensus "Write a thread-safe lock-free queue in C++"
-
-# 🗂️ [KILLER FEATURE] Workspace Symbol Indexer (scans & caches code symbols into symbols.json)
-ijachi-code index
-
-# 🛡️ [KILLER FEATURE] Git Safety Checkpoints & Conventional Commit Generator
-ijachi-code commit
-
-# Show spend + latency table for all recorded calls
-ijachi-router stats
-
-# See which providers are active (which API keys detected)
-ijachi-router providers
-
-# Fetch dynamic pricing & new model updates from remote registry
-ijachi-router update-catalog
-
-# Retrain the prompt classifier after editing data/train_data.csv
-ijachi-router train
-
-# [PRO] Launch background REST API Server
-ijachi-router serve --port 8000
-
-# [PRO] Open Interactive Web Telemetry Dashboard in browser
-ijachi-router dashboard --port 8000
-
-# Manage Pro license key
-ijachi-router license set IJPRO-YOUR-KEY-HERE
-ijachi-router license status
-```
-
----
-
-## Library usage
-
-```python
-from ijachi_router import route, Router
-
-# One-shot — auto-selects the best model
-result = route("Explain quicksort in Python")
-print(result.text)
-print(f"Model: {result.model}  Cost: ${result.cost_usd:.4f}  Latency: {result.latency_s:.2f}s")
-
-# Full control
-router = Router()
-router.config.priority = "cost"
-router.config.max_cost_per_call = 0.005
-result = router.route("Write a haiku about Python")
-```
+| **Anthropic** | `ANTHROPIC_API_KEY` | fast / medium | Tier 4-5 | `claude-3-7-sonnet`, `claude-haiku-4-5`, `claude-sonnet-4-5` |
+| **OpenAI** | `OPENAI_API_KEY` | fast / medium | Tier 4-5 | `gpt-4o`, `gpt-4o-mini`, `o3-mini` |
+| **Local (Ollama)** | None (local) | fast | Tier 2-3 | `llama3.1:8b`, `llama3.2:3b`, `qwen2.5-coder` |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | fast / medium | Tier 4-5 | `deepseek-chat` (V3), `deepseek-reasoner` (R1) |
+| **Google Gemini**| `GEMINI_API_KEY` | fast / medium | Tier 4-5 | `gemini-2.5-flash`, `gemini-2.5-pro` |
+| **Groq** | `GROQ_API_KEY` | ultra-fast | Tier 3-4 | `llama-3.3-70b-versatile` |
+| **Cerebras** | `CEREBRAS_API_KEY` | ultra-fast | Tier 3-4 | `llama3.1-70b`, `llama3.1-8b` |
+| **SambaNova** | `SAMBANOVA_API_KEY` | fast / medium | Tier 4-5 | `Meta-Llama-3.1-405B`, `Meta-Llama-3.1-70B` |
+| **Fireworks** | `FIREWORKS_API_KEY` | fast | Tier 3-4 | `llama-v3p1-70b-instruct` |
+| **Mistral AI** | `MISTRAL_API_KEY` | fast | Tier 3-4 | `codestral-latest`, `mistral-large-latest` |
+| **AWS Bedrock** | `AWS_ACCESS_KEY_ID` | medium | Tier 4-5 | `anthropic.claude-3-5-sonnet-v2:0` |
+| **Azure OpenAI** | `AZURE_OPENAI_API_KEY`| medium | Tier 4-5 | `gpt-4o`, `gpt-4o-mini` |
+| **Kimi (Moonshot)**| `MOONSHOT_API_KEY` | fast | Tier 3-4 | `kimi-latest` |
+| **Qwen (Alibaba)**| `DASHSCOPE_API_KEY` | medium | Tier 4-5 | `qwen-max` |
+| **Perplexity** | `PERPLEXITY_API_KEY`| fast | Tier 3-4 | `sonar-pro` |
+| **Cohere** | `COHERE_API_KEY` | medium | Tier 3-4 | `command-r-plus` |
+| **Together AI** | `TOGETHER_API_KEY` | fast | Tier 3-4 | `llama-3.1-70b-instruct` |
+| **OpenRouter** | `OPENROUTER_API_KEY`| fast / medium | Tier 2-5 | Any model aggregator |
+| **Hugging Face**| `HF_TOKEN` | fast | Tier 2-3 | `Mistral-7B-Instruct-v0.3` |
+| **Custom / vLLM**| `LOCAL_SERVER_URL` | fast | Custom | Self-hosted OpenAI-compatible endpoint |
 
 ---
 
 ## 🐙 GitHub Action Integration
 
-Save costs on automated PR summaries, test evaluation, and synthetic code checks by plugging `ijachi-llm-router` directly into your GitHub CI/CD workflows:
-
 ```yaml
 - name: Route Prompt with ijachi-llm-router
+  id: router
   uses: ijachi/ijachi-llm-router@v1
   with:
     prompt: "Summarize recent commit changes and check for security flaws"
     priority: "cost"
     openai_api_key: ${{ secrets.OPENAI_API_KEY }}
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
 
-**Step Outputs**: `${{ steps.router.outputs.response }}`, `${{ steps.router.outputs.model }}`, `${{ steps.router.outputs.cost_usd }}`, and `${{ steps.router.outputs.latency_sec }}`.
-
-See [`.github/workflows/demo-ci.yml`](.github/workflows/demo-ci.yml) for a complete workflow example.
-
----
-
-## 💻 GitHub CLI Extension (`gh router`)
-
-Run `ijachi-llm-router` directly inside GitHub CLI:
-
-```bash
-# Install the GitHub CLI extension
-gh extension install ijachi/ijachi-llm-router
-
-# Route prompts from gh
-gh router route "Explain this git diff"
-gh router stats
+- name: Display Output
+  run: |
+    echo "Model selected: ${{ steps.router.outputs.model }}"
+    echo "Cost USD: ${{ steps.router.outputs.cost_usd }}"
+    echo "Response: ${{ steps.router.outputs.response }}"
 ```
 
 ---
 
-## How routing works
-
-```
-Your prompt
-    │
-    ▼
-┌─────────────┐      TF-IDF + LogReg classifier
-│  Classifier │ ──►  category: "code"  confidence: 0.91
-└─────────────┘      complexity: 0.42  (affects cheap vs strong model choice)
-    │
-    ▼
-┌─────────────┐      Scores all available models on:
-│   Scorer    │      • category match  • priority (cost/speed/quality/balanced)
-└─────────────┘      • complexity      • cost cap
-    │
-    ▼
-┌─────────────┐      Per-provider rewrites (no extra LLM call):
-│  Optimizer  │      Anthropic → XML wrap + chain-of-thought
-└─────────────┘      OpenAI/Gemini/DeepSeek → provider-tailored system prompts
-    │
-    ▼
-┌───────────────────┐   Tries providers in ranked order
-│ route_with_fallback│  Catches ProviderError → next candidate
-└───────────────────┘   Circuit breaker auto-skips flaky providers
-    │
-    ▼
-GenerationResult(text, model, cost_usd, latency_s, tokens…)
-    │
-    ▼
-~/.ijachi-llmr/history.jsonl   (append-only cost/usage log)
-```
-
----
-
-## Add your own model
-
-No code changes needed — just edit [`models.yaml`](models.yaml):
-
-```yaml
-- provider: openai           # matching REGISTRY provider key
-  model_id: gpt-4o-mini      # exact string the API expects
-  tags: [simple-qa, creative, summarization]
-  input_per_1k: 0.00015     # USD per 1,000 input tokens
-  output_per_1k: 0.0006      # USD per 1,000 output tokens
-  max_context: 128000
-  speed_tier: fast           # fast | medium | slow
-```
-
-Valid tags: `code` · `math` · `creative` · `summarization` · `reasoning` · `long-context` · `simple-qa`
-
-Then run `ijachi-router providers` to confirm the provider key is set.
-
----
-
-## Add a new provider
-
-1. Create `ijachi_router/providers/your_provider.py` implementing the [`Provider`](ijachi_router/providers/base.py) ABC
-2. Register it in [`ijachi_router/providers/__init__.py`](ijachi_router/providers/__init__.py)
-3. Add its env key to `_PROVIDER_ENV_KEYS` in [`ijachi_router/config.py`](ijachi_router/config.py)
-4. Add a rewrite strategy in [`ijachi_router/optimizer.py`](ijachi_router/optimizer.py)
-5. Add at least one model entry in [`models.yaml`](models.yaml)
-
----
-
-## Project structure
+## 📁 Repository Structure
 
 ```
 ijachi-llm-router/
-├── action.yml               # GitHub Action definition
-├── gh-router                # GitHub CLI extension executable
-├── cli.py                  # CLI entry point (click)
-├── models.yaml             # Model catalog — preconfigured matrix
-├── pyproject.toml           # Package config + dependencies
-├── PRICING.md              # Monetization tier comparison & Paystack link
-├── COMMERCIAL_LICENSE.md   # Enterprise commercial license terms
+├── cli.py                     # Root CLI proxy
+├── models.yaml                # Model matrix & pricing specifications
+├── pyproject.toml             # Package configuration & entry points
+├── action.yml                 # GitHub Action definition
+├── gh-router                  # GitHub CLI extension wrapper
+├── SECURITY.md                # Vulnerability disclosure policy
+├── PRIVACY.md                 # Data boundaries & privacy modes
 ├── data/
-│   └── train_data.csv       # Classifier training data (~140 rows)
+│   └── train_data.csv         # Classifier training dataset
 ├── ijachi_router/
-│   ├── __init__.py          # Public API: route(), Router
-│   ├── catalog_updater.py   # Dynamic remote pricing & catalog updater
-│   ├── classifier.py        # TF-IDF + LogReg prompt classifier
-│   ├── config.py            # Config loader (models.yaml + user prefs)
-│   ├── core.py              # Main routing orchestrator
-│   ├── fallback.py          # Circuit breaker + fallback logic
-│   ├── license.py           # Pro license key validation & paywall gating
-│   ├── metrics.py           # Usage logging + stats table
-│   ├── optimizer.py         # Per-provider prompt rewrites
-│   ├── server.py            # REST API Gateway & Web Telemetry Dashboard
-│   └── providers/
-│       ├── __init__.py      # Provider registry (20 providers)
-│       ├── base.py          # Provider ABC + GenerationResult
-│       ├── anthropic_provider.py
-│       ├── openai_provider.py
-│       ├── deepseek_provider.py
-│       ├── gemini_provider.py
-│       ├── groq_provider.py
-│       ├── mistral_provider.py
-│       ├── moonshot_provider.py
-│       ├── qwen_provider.py
-│       ├── perplexity_provider.py
-│       ├── cohere_provider.py
-│       ├── cerebras_provider.py
-│       ├── sambanova_provider.py
-│       ├── fireworks_provider.py
-│       ├── huggingface_provider.py
-│       ├── bedrock_provider.py
-│       ├── azure_provider.py
-│       ├── custom_provider.py
-│       ├── together_provider.py
-│       ├── openrouter_provider.py
-│       └── local_provider.py
-└── tests/
-    ├── test_catalog_updater.py
-    ├── test_classifier.py
-    ├── test_core.py
-    ├── test_fallback.py
-    ├── test_license.py
-    ├── test_providers.py
-    └── test_server.py
+│   ├── cli/
+│   │   ├── code.py            # ijachi-code CLI implementation
+│   │   └── router.py          # ijachi-router CLI implementation
+│   ├── session/
+│   │   ├── events.py          # Canonical event schema
+│   │   ├── store.py           # Atomic append-only session store
+│   │   ├── state.py           # Working set & cost ledger
+│   │   ├── ledger.py          # Facts & decisions ledger
+│   │   ├── checkpoints.py     # File snapshotting & /undo
+│   │   └── export.py          # Markdown/JSON session exporter
+│   ├── context/
+│   │   ├── assembler.py       # Context layer budgeting (0.75*W - O)
+│   │   ├── compaction.py      # Structured compaction engine
+│   │   ├── memory.py          # Layered IJACHI.md loader
+│   │   └── tokens.py          # Token estimators
+│   ├── agent/
+│   │   ├── loop.py            # Agentic orchestration & fallback replay
+│   │   ├── permissions.py     # R0-R4 risk tiers & shell command parser
+│   │   ├── sandbox.py         # Workspace boundaries & env scrubbing
+│   │   ├── tools.py           # Read, Edit, Write, Glob, Grep, Bash, Plan
+│   │   └── limits.py          # Turn caps & loop repetition detector
+│   ├── routing/
+│   │   ├── features.py        # Session-aware feature extractor
+│   │   ├── classifier.py      # Non-executable safe classifier
+│   │   ├── policy.py          # Candidate filters & quality floors
+│   │   ├── scorer.py          # Scoring with stickiness bonuses
+│   │   ├── escalation.py      # Automatic frontier escalation
+│   │   └── explain.py         # /why output builder
+│   ├── ui/
+│   │   ├── repl.py            # Rich + prompt_toolkit interactive REPL
+│   │   ├── render.py          # Output streaming & terminal sanitization
+│   │   └── prompts.py         # Multi-line input & autocompletion
+│   ├── providers/             # 20 Provider backends + registry
+│   ├── doctor.py              # Environment diagnostics runner
+│   ├── fallback.py            # Circuit breakers
+│   ├── metrics.py             # Usage statistics
+│   └── server.py              # Pro REST gateway & telemetry dashboard
+└── tests/                     # 116 unit, security, and acceptance tests
 ```
 
 ---
 
-## 🚀 Pro, Enterprise & Commercial Licensing
+## ⚖️ Licensing & Commercial Editions
 
-`ijachi-llm-router` is available under an **Open Core** dual-licensing model:
-
-- 🟢 **Community Edition (Free / MIT)**: Self-hosted CLI & Python SDK for individuals and open-source projects.
-- 🔵 **Pro Edition ($19 / month)**: Hosted REST API Gateway, Web Telemetry Dashboard, and webhook budget alerts.
-- 🟣 **Enterprise Commercial License**: Proprietary closed-source embedding, custom SLAs, white-labeling, and dedicated support.
-
-See [**PRICING.md**](PRICING.md) for full tier details and plan comparisons.  
-For proprietary commercial licensing, see [**COMMERCIAL_LICENSE.md**](COMMERCIAL_LICENSE.md).
-
-👉 **Subscribe to Pro or Buy a License**: [**Paystack Payment Portal**](https://paystack.shop/pay/enlqpvzflw)
-
----
-
-## 💖 Support & Sponsorship
-
-If `ijachi-llm-router` saved you money or time, consider supporting its ongoing development! Every contribution helps maintain and improve the project.
-
-[![Paystack](https://img.shields.io/badge/Support-Paystack-09A5DB?style=for-the-badge&logo=paystack&logoColor=white)](https://paystack.shop/pay/enlqpvzflw)
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ijachi)
-[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sponsors/ijachi)
-
----
-
-## License
-
-Core library is licensed under [MIT](LICENSE). For commercial proprietary usage without open-source requirements, see [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
+`ijachi-llm-router` is distributed under an Open Core model:
+- **Community Edition (MIT)**: Free for all developers. Includes the full interactive assistant (`ijachi-code`), session continuity, agent tools, routing engine, and local diagnostics.
+- **Pro Edition ($19 / month)**: Hosted REST API gateway, Web Telemetry Dashboard, and webhook budget alerts. See [PRICING.md](PRICING.md) and [Paystack Portal](https://paystack.shop/pay/enlqpvzflw).
+- **Enterprise License**: Dedicated support, white-labeling, custom SLAs, and proprietary embedding. See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).

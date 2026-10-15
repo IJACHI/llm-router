@@ -87,3 +87,21 @@ def test_provider_missing_key_raises_error(monkeypatch):
     p_bed = BedrockProvider("anthropic.claude-3-5-sonnet-v2:0", sample_pricing)
     with pytest.raises(ProviderError, match="AWS_ACCESS_KEY_ID"):
         p_bed._call("hello")
+
+
+def test_local_provider_model_not_found(mocker):
+    from ijachi_router.providers.local_provider import LocalProvider
+    sample_pricing = {"input_per_1k": 0.0, "output_per_1k": 0.0}
+    p = LocalProvider("deepseek-r1:7b", sample_pricing)
+
+    mock_response = mocker.Mock()
+    mock_response.status_code = 404
+    mock_response.json.return_value = {"error": "model 'deepseek-r1:7b' not found, try pulling it first"}
+
+    mocker.patch("requests.post", return_value=mock_response)
+
+    with pytest.raises(ProviderError) as exc_info:
+        p._call("hello")
+
+    assert "Model 'deepseek-r1:7b' not found on Ollama server" in str(exc_info.value)
+    assert "ollama pull deepseek-r1:7b" in str(exc_info.value)

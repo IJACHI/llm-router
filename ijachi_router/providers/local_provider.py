@@ -18,6 +18,16 @@ class LocalProvider(Provider):
                 json={"model": self.model_id, "prompt": prompt, "stream": False},
                 timeout=kwargs.get("timeout", 120),
             )
+            if resp.status_code == 404:
+                try:
+                    err_msg = resp.json().get("error", "")
+                except Exception:
+                    err_msg = ""
+                if "not found" in err_msg.lower() or not err_msg:
+                    raise ProviderError(
+                        f"Model '{self.model_id}' not found on Ollama server at {host}. "
+                        f"Please run `ollama pull {self.model_id}` to download it."
+                    )
             resp.raise_for_status()
         except requests.RequestException as e:
             raise ProviderError(f"could not reach Ollama at {host}: {e}") from e
