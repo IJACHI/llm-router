@@ -84,10 +84,12 @@ def format_status_line(
     last_cost: float,
     session_cost: float,
     budget_usd: float | None = None,
+    routing_mode: str = "efficient",
+    autonomy_mode: str = "manual",
 ) -> str:
-    """Format single-line status bar (Doc 6.2)."""
+    """Format single-line status bar with routing mode and autonomy level."""
     budget_str = f" / ${budget_usd:.2f}" if budget_usd is not None else ""
     return (
-        f"{mode} · {model or 'auto'} · ctx {ctx_percent}% · "
-        f"turn ${last_cost:.4f} · session ${session_cost:.4f}{budget_str}"
+        f"[{routing_mode} | {autonomy_mode}] · {mode}: {model or 'auto'} · "
+        f"ctx {ctx_percent}% · turn ${last_cost:.4f} · session ${session_cost:.4f}{budget_str}"
     )

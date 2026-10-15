@@ -39,6 +39,7 @@ def filter_candidates(
     agent_quality_floor: int = 2,
     open_circuit_providers: set[str] | None = None,
     pinned_model: str | None = None,
+    priority: str = "efficient",
 ) -> tuple[list["ModelConfig"], dict[str, str]]:
     """Filter models against requirements. Returns (eligible_models, reasons_filtered)."""
     eligible: list["ModelConfig"] = []
@@ -93,11 +94,13 @@ def filter_candidates(
             filtered_reasons[full_id] = f"does not match category '{need.category}'"
             continue
 
-        # 6. Cost cap check
-        est_cost = (500 / 1000) * m.input_per_1k + (need.expected_output_tokens / 1000) * m.output_per_1k
-        if max_cost_per_turn is not None and est_cost > max_cost_per_turn:
-            filtered_reasons[full_id] = f"estimated cost ${est_cost:.4f} exceeds max-cost ${max_cost_per_turn:.4f}"
-            continue
+        # 6. Cost cap check (bypassed if in 'best-fit' mode)
+        from ijachi_router.config import normalize_mode
+        if normalize_mode(priority) != "best-fit":
+            est_cost = (500 / 1000) * m.input_per_1k + (need.expected_output_tokens / 1000) * m.output_per_1k
+            if max_cost_per_turn is not None and est_cost > max_cost_per_turn:
+                filtered_reasons[full_id] = f"estimated cost ${est_cost:.4f} exceeds max-cost ${max_cost_per_turn:.4f}"
+                continue
 
         eligible.append(m)
 

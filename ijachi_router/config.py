@@ -77,7 +77,7 @@ class ModelConfig:
 class RouterConfig:
     """Merged runtime configuration."""
     models: list[ModelConfig] = field(default_factory=list)
-    priority: str = "balanced"          # cost | speed | quality | balanced
+    priority: str = "efficient"          # efficient | cheapest | best | best-fit (or legacy speed)
     max_cost_per_call: float | None = None
     available_providers: set[str] = field(default_factory=set)
 
@@ -190,6 +190,42 @@ def _load_user_config() -> dict[str, Any]:
     return data
 
 
+def normalize_mode(mode: str | None) -> str:
+    """Normalize user-facing preference modes and legacy priority values.
+
+    Supported Modes:
+    - 'efficient' (default, alias 'balanced', '1'): Balances cost and best fit (cheapest adequate model).
+    - 'cheapest' (alias 'cost', 'cheap', 'free', '2'): Prefers only cheapest/free models and providers.
+    - 'best' (alias 'quality', 'pro', '3'): Prefers highest capability/best models.
+    - 'best-fit' (alias 'unconstrained', 'max-quality', '4'): Best fit models for the task irrespective of cost.
+    - 'speed' (alias 'fast'): Prefers lowest latency models.
+    """
+    if not mode:
+        return "efficient"
+    m = str(mode).strip().lower()
+    if m in ("1", "efficient", "balanced", "default"):
+        return "efficient"
+    if m in ("2", "cheapest", "cost", "cheap", "free"):
+        return "cheapest"
+    if m in ("3", "best", "quality", "pro", "high-quality"):
+        return "best"
+    if m in ("4", "best-fit", "bestfit", "unconstrained", "max-quality", "irrespective", "any-cost"):
+        return "best-fit"
+    if m in ("speed", "fast"):
+        return "speed"
+    return "efficient"
+
+
+def save_user_priority(priority: str) -> None:
+    """Persist the user's default routing preference to ~/.ijachi-llmr/config.yaml."""
+    norm = normalize_mode(priority)
+    _USER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    cfg = _load_user_config()
+    cfg["priority"] = norm
+    with _USER_CONFIG_PATH.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, default_flow_style=False)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -217,9 +253,7 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
     models = _load_models(yaml_path)
 
     user = _load_user_config()
-    priority = user.get("priority", "balanced")
-    if priority not in {"cost", "speed", "quality", "balanced"}:
-        priority = "balanced"
+    priority = normalize_mode(user.get("priority", "efficient"))
 
     max_cost = user.get("max_cost_per_call")
     if max_cost is not None:

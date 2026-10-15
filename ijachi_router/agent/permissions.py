@@ -77,17 +77,46 @@ class PermissionResult:
     exit_code: int = 0
 
 
+def normalize_permission_mode(mode: str | None) -> str:
+    """Normalize user-facing autonomy / permission modes.
+
+    Modes:
+    - 'auto' (alias 'fully-automatic', 'automatic', 'full', '1', 'on'):
+        Fully automatic: no need for user approvals for safe activities.
+    - 'semi-auto' (alias 'semi-automatic', 'accept-edits', '2'):
+        Semi-automatic: auto-approves file edits, asks approval for shell commands and external actions.
+    - 'manual' (alias 'ask', 'interactive', '3', 'off'):
+        Manual: needs approval for every major activity.
+    - 'auto-safe': Headless CI mode (auto-denies unapproved actions with exit code 5).
+    - 'plan': Read-only planning mode.
+    """
+    if not mode:
+        return "manual"
+    m = str(mode).strip().lower()
+    if m in ("auto", "fully-automatic", "automatic", "full", "1", "on"):
+        return "auto"
+    if m in ("semi-auto", "semi-automatic", "semi", "accept-edits", "2"):
+        return "semi-auto"
+    if m in ("manual", "ask", "interactive", "off", "3"):
+        return "manual"
+    if m in ("auto-safe", "ci"):
+        return "auto-safe"
+    if m == "plan":
+        return "plan"
+    return "manual"
+
+
 class PermissionManager:
     """Evaluates and prompts for authorization before any tool execution."""
 
     def __init__(
         self,
-        mode: str = "ask",  # ask | plan | accept-edits | auto-safe
+        mode: str = "manual",  # auto | semi-auto | manual | auto-safe | plan
         allowed_patterns: list[str] | None = None,
         denied_patterns: list[str] | None = None,
         is_tty: bool = True,
     ):
-        self.mode = mode
+        self.mode = normalize_permission_mode(mode) if mode != "auto-safe" else "auto-safe"
         self.session_allowed_patterns: set[str] = set(allowed_patterns or [])
         self.session_denied_patterns: set[str] = set(denied_patterns or [])
         self.r1_session_approved: bool = False
@@ -218,8 +247,13 @@ class PermissionManager:
             if a in action_repr or a == tool_name:
                 return PermissionResult(allowed=True, risk_class=risk)
 
-        # Accept-edits mode: R1 auto-approved inside workspace
-        if self.mode == "accept-edits" and risk == "R1":
+        # Fully automatic mode: R0, R1, R2 auto-approved (no need for user approvals for safe actions)
+        if self.mode == "auto":
+            if risk in ("R0", "R1", "R2"):
+                return PermissionResult(allowed=True, risk_class=risk)
+
+        # Semi-automatic mode: R1 auto-approved inside workspace, R2/R3 prompt user
+        if self.mode in ("semi-auto", "accept-edits") and risk == "R1":
             return PermissionResult(allowed=True, risk_class=risk)
 
         # Auto-safe mode (CI): If not explicitly allowed, deny with exit code 5 (SEC-08, AT-13)

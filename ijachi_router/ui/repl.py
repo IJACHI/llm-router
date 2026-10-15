@@ -62,8 +62,12 @@ class InteractiveREPL:
         # Command directory
         self.commands = {
             "/help": "List commands and shortcuts",
+            "/mode": "Configure routing mode [efficient | cheapest | best | best-fit]",
+            "/autonomy": "Configure autonomy level [auto | semi-auto | manual]",
+            "/auto": "Toggle autonomy level (auto / semi-auto / manual)",
             "/model": "Show, pin or unpin the model [id|auto]",
-            "/priority": "Change routing priority [cost|speed|quality|balanced]",
+            "/priority": "Alias for /mode",
+            "/permissions": "Alias for /autonomy",
             "/budget": "Show or set session budget [USD]",
             "/cost": "Spend, tokens, cache savings, per-model breakdown",
             "/why": "Explain the routing decision for the last turn",
@@ -75,7 +79,6 @@ class InteractiveREPL:
             "/undo": "Revert the last file change set to its checkpoint",
             "/checkpoint": "Create a named checkpoint [name]",
             "/diff": "Show changes against last checkpoint",
-            "/permissions": "View and edit permission rules",
             "/memory": "View or edit project memory (IJACHI.md)",
             "/init": "Draft a project memory file for this repo",
             "/providers": "Show provider status and circuit breakers",
@@ -86,6 +89,7 @@ class InteractiveREPL:
 
     def _toolbar_fn(self) -> str:
         mode = "pinned" if self.state.pinned_model else "auto"
+        autonomy = getattr(self.loop.permissions, "mode", "manual")
         return format_status_line(
             mode=mode,
             model=self.state.current_model or self.state.pinned_model or "auto",
@@ -93,6 +97,8 @@ class InteractiveREPL:
             last_cost=self.last_turn_cost,
             session_cost=self.state.total_cost_usd,
             budget_usd=self.state.budget_usd,
+            routing_mode=self.state.priority or "efficient",
+            autonomy_mode=autonomy,
         )
     def handle_command(self, cmd_line: str) -> bool:
         """Alias for handle_slash_command."""
@@ -131,12 +137,95 @@ class InteractiveREPL:
                 console.print(f"[bold green]✓ Pinned session to model:[/bold green] {args}\n")
             return False
 
-        if cmd == "/priority":
-            if args in ("cost", "speed", "quality", "balanced"):
-                self.state.priority = args
-                console.print(f"[bold green]✓ Routing priority set to:[/bold green] {args}\n")
+        if cmd in ("/mode", "/priority"):
+            from ijachi_router.config import normalize_mode, save_user_priority
+            if not args or args in ("show", "help", "list"):
+                curr = normalize_mode(self.state.priority)
+                table = Table(title="🧭 Routing Preference Modes", border_style="cyan")
+                table.add_column("Key", style="bold", justify="center")
+                table.add_column("Mode", style="bold cyan")
+                table.add_column("Strategy & Philosophy", style="white")
+                table.add_column("Status", justify="center")
+
+                modes_info = [
+                    ("1", "efficient", "(DEFAULT) Most efficient: balances cost and best fit (cheapest adequate model)", "green"),
+                    ("2", "cheapest", "Only cheapest models/providers (prioritizes free/local & lowest cost)", "yellow"),
+                    ("3", "best", "Best models/providers (high-capability & frontier model preference)", "cyan"),
+                    ("4", "best-fit", "Best fit models/providers for the task irrespective of cost (0% cost penalty)", "magenta"),
+                ]
+                for key, name, desc, col in modes_info:
+                    is_active = (curr == name)
+                    status = f"[bold {col}]● ACTIVE[/bold {col}]" if is_active else "[dim]inactive[/dim]"
+                    table.add_row(key, f"[{col}]{name}[/{col}]", desc, status)
+
+                console.print(table)
+                console.print("[dim]Switch mode: [bold cyan]/mode <efficient | cheapest | best | best-fit>[/bold cyan] (or 1-4)[/dim]\n")
             else:
-                console.print(f"[bold cyan]Current priority:[/bold cyan] {self.state.priority} (choices: cost, speed, quality, balanced)\n")
+                norm = normalize_mode(args)
+                self.state.priority = norm
+                self.loop.config.priority = norm
+                save_user_priority(norm)
+                labels = {
+                    "efficient": "Most Efficient (Cost & Best Fit Balanced - Default)",
+                    "cheapest": "Only Cheapest (Lowest Cost & Free Models)",
+                    "best": "Best Models (High Capability Bias)",
+                    "best-fit": "Best Fit Irrespective of Cost (Pure Task Quality)",
+                    "speed": "Speed (Lowest Latency)",
+                }
+                desc = labels.get(norm, norm)
+                console.print(f"[bold green]✓ Routing preference set to:[/bold green] [bold cyan]{norm}[/bold cyan] · {desc}")
+                console.print("[dim]Saved as your default preference in ~/.ijachi-llmr/config.yaml[/dim]\n")
+            return False
+
+        if cmd in ("/autonomy", "/permissions"):
+            from ijachi_router.agent.permissions import normalize_permission_mode
+            curr = getattr(self.loop.permissions, "mode", "manual")
+            if not args or args in ("show", "help", "list"):
+                table = Table(title="🛡️  Autonomy & Execution Permissions", border_style="cyan")
+                table.add_column("Key", style="bold", justify="center")
+                table.add_column("Autonomy Level", style="bold cyan")
+                table.add_column("Approval Behavior", style="white")
+                table.add_column("Status", justify="center")
+
+                levels_info = [
+                    ("1", "auto", "Fully automatic (no need for user approvals for safe actions)", "green"),
+                    ("2", "semi-auto", "Semi-automatic (approvals for some: auto-approves edits, asks for shell execution)", "yellow"),
+                    ("3", "manual", "Manual (needs approval for every major activity)", "cyan"),
+                ]
+                for key, name, desc, col in levels_info:
+                    is_active = (curr == name)
+                    status = f"[bold {col}]● ACTIVE[/bold {col}]" if is_active else "[dim]inactive[/dim]"
+                    table.add_row(key, f"[{col}]{name}[/{col}]", desc, status)
+
+                console.print(table)
+                console.print("[dim]Toggle anytime with [bold cyan]/auto[/bold cyan], or set: [bold cyan]/autonomy <auto | semi-auto | manual>[/bold cyan][/dim]\n")
+            else:
+                norm = normalize_permission_mode(args)
+                self.loop.permissions.mode = norm
+                labels = {
+                    "auto": "Fully automatic (no need for user approvals for safe activities)",
+                    "semi-auto": "Semi-automatic (approvals for some activities)",
+                    "manual": "Manual (needs approval for every major activity)",
+                }
+                console.print(f"[bold green]✓ Autonomy level set to:[/bold green] [bold cyan]{norm}[/bold cyan] · {labels.get(norm, norm)}\n")
+            return False
+
+        if cmd == "/auto":
+            from ijachi_router.agent.permissions import normalize_permission_mode
+            if args:
+                norm = normalize_permission_mode(args)
+            else:
+                cycle = {"manual": "semi-auto", "semi-auto": "auto", "auto": "manual"}
+                curr = getattr(self.loop.permissions, "mode", "manual")
+                norm = cycle.get(curr, "semi-auto")
+
+            self.loop.permissions.mode = norm
+            labels = {
+                "auto": "Fully automatic (no need for user approvals)",
+                "semi-auto": "Semi-automatic (approvals for some activities)",
+                "manual": "Manual (needs approval for every major activity)",
+            }
+            console.print(f"[bold green]✓ Autonomy toggled to:[/bold green] [bold cyan]{norm}[/bold cyan] ({labels.get(norm, norm)})\n")
             return False
 
         if cmd == "/budget":

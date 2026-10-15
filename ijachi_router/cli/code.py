@@ -33,7 +33,9 @@ from ijachi_router.ui.repl import InteractiveREPL
 
 OPTS_WITH_VALUE = {
     "--resume",
+    "--mode",
     "--priority",
+    "--autonomy",
     "--max-cost",
     "--budget",
     "--model",
@@ -98,13 +100,13 @@ class CodeCLI(click.Group):
 @click.option("--prompt", default=None, help="Initial prompt to seed conversation or run.")
 @click.option("--continue", "continue_flag", is_flag=True, help="Resume the most recent session for this workspace.")
 @click.option("--resume", "resume_id", default=None, help="Resume session by ID.")
-@click.option("--priority", type=click.Choice(["cost", "speed", "quality", "balanced"]), default=None, help="Routing priority.")
+@click.option("--mode", "--priority", "priority", type=click.Choice(["efficient", "cheapest", "best", "best-fit", "cost", "speed", "quality", "balanced"]), default=None, help="Routing preference mode (default: efficient).")
 @click.option("--max-cost", type=float, default=None, help="Max cost USD per turn.")
 @click.option("--budget", type=float, default=None, help="Max budget USD for session.")
 @click.option("--model", "pinned_model", default=None, help="Pin a specific model.")
 @click.option("--allow-providers", default=None, help="Comma-separated allowed providers.")
 @click.option("--deny-providers", default=None, help="Comma-separated denied providers.")
-@click.option("--permission-mode", type=click.Choice(["ask", "accept-edits", "plan", "auto-safe"]), default="ask", help="Security permission mode.")
+@click.option("--autonomy", "--permission-mode", "permission_mode", type=click.Choice(["auto", "semi-auto", "manual", "ask", "accept-edits", "plan", "auto-safe"]), default="manual", help="Execution autonomy mode (auto, semi-auto, manual).")
 @click.option("--local-only", is_flag=True, help="Strictly allow only local models (Ollama/custom).")
 @click.option("--cwd", default=None, help="Target workspace path.")
 @click.option("--json", "json_output", is_flag=True, help="Machine-readable JSON output.")

@@ -51,22 +51,33 @@ def score_candidate(
     # Normalized cost score [0, 1] where $0.00 = 1.0
     cost_score = 1.0 / (1.0 + expected_cost * 100.0)
 
-    # 2. Priority weighting
-    if priority == "cost":
-        base_score = 0.70 * cost_score + 0.15 * speed_score + 0.15 * quality_score
+    # 2. Priority weighting across the 4 core modes
+    from ijachi_router.config import normalize_mode
+    norm_p = normalize_mode(priority)
 
-    elif priority == "speed":
+    if norm_p == "cheapest":
+        # Mode 1: Preference for only cheapest models/providers
+        base_score = 0.85 * cost_score + 0.10 * speed_score + 0.05 * quality_score
+
+    elif norm_p == "best":
+        # Mode 2: Preference for best models/providers (high quality bias)
+        base_score = 0.75 * quality_score + 0.15 * speed_score + 0.10 * cost_score
+
+    elif norm_p == "best-fit":
+        # Mode 4: Best fit models/providers for the task irrespective of cost (0% cost penalty)
+        base_score = 0.90 * quality_score + 0.10 * speed_score
+
+    elif norm_p == "speed":
+        # Latency-focused mode
         base_score = 0.65 * speed_score + 0.20 * cost_score + 0.15 * quality_score
 
-    elif priority == "quality":
-        base_score = 0.80 * quality_score + 0.10 * speed_score + 0.10 * cost_score
-
-    else:  # balanced
+    else:  # "efficient" (balanced - DEFAULT MODE)
+        # Mode 3: Most efficient model/provider which balances cost and best fit
         if need.complexity > 0.7:
             # Complex tasks demand high quality; quality dominates cost
             base_score = 0.60 * quality_score + 0.25 * cost_score + 0.15 * speed_score
         elif need.complexity > 0.4:
-            # Moderate complexity: balance quality and cost
+            # Moderate complexity: balance quality and cost (cheapest adequate model)
             base_score = 0.45 * quality_score + 0.40 * cost_score + 0.15 * speed_score
         else:
             # Simple tasks: cost-efficiency and speed take precedence
