@@ -37,6 +37,23 @@ console = Console()
 _HISTORY_FILE = Path.home() / ".ijachi-llmr" / "history.txt"
 
 
+def _safe_input_choice(prompt_str: str) -> str:
+    """Read single-line interactive choice cleanly using prompt_toolkit or input fallback."""
+    from ijachi_router.agent.permissions import _sanitize_terminal_input
+    _sanitize_terminal_input()
+    try:
+        if sys.stdin.isatty():
+            try:
+                from prompt_toolkit import prompt as pt_prompt
+                return pt_prompt(prompt_str).strip()
+            except Exception:
+                return input(prompt_str).strip()
+        else:
+            return input(prompt_str).strip()
+    except (KeyboardInterrupt, EOFError):
+        return ""
+
+
 class InteractiveREPL:
     """Full-featured interactive REPL for ijachi-code."""
 
@@ -163,14 +180,10 @@ class InteractiveREPL:
                     table.add_row(key, f"[{col}]{name}[/{col}]", desc, status)
 
                 console.print(table)
-                try:
-                    choice = input("Select routing mode (1-4 or name) [Enter to keep current]: ").strip()
-                    if choice:
-                        args = choice
-                    else:
-                        console.print()
-                        return False
-                except (KeyboardInterrupt, EOFError):
+                choice = _safe_input_choice("Select routing mode (1-4 or name) [Enter to keep current]: ")
+                if choice:
+                    args = choice
+                else:
                     console.print()
                     return False
 
@@ -211,14 +224,10 @@ class InteractiveREPL:
                     table.add_row(key, f"[{col}]{name}[/{col}]", desc, status)
 
                 console.print(table)
-                try:
-                    choice = input("Select autonomy level (1-3 or name) [Enter to keep current]: ").strip()
-                    if choice:
-                        args = choice
-                    else:
-                        console.print()
-                        return False
-                except (KeyboardInterrupt, EOFError):
+                choice = _safe_input_choice("Select autonomy level (1-3 or name) [Enter to keep current]: ")
+                if choice:
+                    args = choice
+                else:
                     console.print()
                     return False
 

@@ -34,6 +34,19 @@ CATCHY_PHRASES = [
 ]
 
 
+_ACTIVE_SPINNERS: set[CatchyStatusSpinner] = set()
+
+
+def ensure_spinners_stopped() -> None:
+    """Ensure all background catchy spinners are cleanly terminated and joined."""
+    for s in list(_ACTIVE_SPINNERS):
+        try:
+            s.stop()
+        except Exception:
+            pass
+    _ACTIVE_SPINNERS.clear()
+
+
 class CatchyStatusSpinner:
     """Live terminal spinner with rotating catchy phrases like Claude Code."""
 
@@ -59,24 +72,35 @@ class CatchyStatusSpinner:
             frame = spinner_frames[frame_idx % len(spinner_frames)]
             frame_idx += 1
 
-            # Render single-line status using ANSI clear-to-end-of-line (\033[K)
-            sys.stdout.write(f"\r\033[K\033[1;36m{frame}\033[0m \033[2m{current_phrase}\033[0m")
-            sys.stdout.flush()
+            if not self._stop_event.is_set():
+                # Render single-line status using ANSI clear-to-end-of-line (\033[K)
+                sys.stdout.write(f"\r\033[K\033[1;36m{frame}\033[0m \033[2m{current_phrase}\033[0m")
+                sys.stdout.flush()
             time.sleep(0.1)
 
         # Clear line on stop
-        sys.stdout.write("\r\033[K")
-        sys.stdout.flush()
+        try:
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
+        except Exception:
+            pass
 
     def start(self):
         self._stop_event.clear()
+        _ACTIVE_SPINNERS.add(self)
         self._thread = threading.Thread(target=self._spin_loop, daemon=True)
         self._thread.start()
 
     def stop(self):
+        self._stop_event.set()
         if self._thread and self._thread.is_alive():
-            self._stop_event.set()
-            self._thread.join(timeout=0.5)
+            self._thread.join(timeout=1.0)
+        _ACTIVE_SPINNERS.discard(self)
+        try:
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
+        except Exception:
+            pass
 
     def __enter__(self):
         self.start()

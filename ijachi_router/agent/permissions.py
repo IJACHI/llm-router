@@ -101,9 +101,21 @@ def normalize_permission_mode(mode: str | None) -> str:
         return "manual"
     if m in ("auto-safe", "ci"):
         return "auto-safe"
-    if m == "plan":
-        return "plan"
-    return "manual"
+def _sanitize_terminal_input() -> None:
+    """Flush any pre-buffered keystrokes typed during network delay and restore terminal canonical mode."""
+    if not sys.stdin.isatty():
+        return
+    try:
+        import termios
+        fd = sys.stdin.fileno()
+        # Flush pending unread input from the OS terminal buffer (e.g. Enter pressed during network lag)
+        termios.tcflush(fd, termios.TCIFLUSH)
+        # Restore canonical mode, echo, and signals if altered
+        attr = termios.tcgetattr(fd)
+        attr[3] |= (termios.ICANON | termios.ECHO | termios.ISIG)
+        termios.tcsetattr(fd, termios.TCSANOW, attr)
+    except Exception:
+        pass
 
 
 class PermissionManager:
@@ -279,32 +291,67 @@ class PermissionManager:
             )
 
         # Interactive approval prompt (UX-04, Document 5.4, 6.3)
-        choice = self._prompt_approval(tool_name, args, risk, model_name, why_needed)
+        while True:
+            choice = self._prompt_approval(tool_name, args, risk, model_name, why_needed)
+            if choice in ("e", "explain", "why", "?"):
+                self._render_explanation(tool_name, args, risk, model_name, why_needed)
+                continue
+            break
 
-        if choice == "y":
+        if choice in ("y", "yes", "yep", "ok", "allow", "1", "true"):
             return PermissionResult(allowed=True, risk_class=risk)
-        elif choice == "s":
+        elif choice in ("s", "session"):
             if risk == "R1":
                 self.r1_session_approved = True
             self.session_allowed_patterns.add(action_repr)
             return PermissionResult(allowed=True, risk_class=risk)
-        elif choice == "a":
+        elif choice in ("a", "always"):
             self.session_allowed_patterns.add(action_repr)
             return PermissionResult(allowed=True, risk_class=risk)
-        elif choice == "d":
+        elif choice in ("d", "feedback"):
             return PermissionResult(
                 allowed=False,
                 risk_class=risk,
                 reason="User denied action with feedback.",
                 exit_code=5,
             )
-        else:  # 'n' or default Enter
+        else:  # 'n', 'no', 'deny', or default Enter
             return PermissionResult(
                 allowed=False,
                 risk_class=risk,
                 reason="User denied action.",
                 exit_code=5,
             )
+
+    def _render_explanation(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        risk_class: str,
+        model_name: str,
+        why: str,
+    ) -> None:
+        """Render detailed explanation of why the action is being performed and its risk."""
+        from rich.table import Table
+        risk_desc = {
+            "R0": "Read-only inspection (safe)",
+            "R1": "Workspace modification (creates or edits local files inside project directory)",
+            "R2": "Command execution (runs shell commands or external scripts)",
+            "R3": "High-risk / out-of-sandbox operation (modifies system paths or destructive operations)",
+        }.get(risk_class, risk_class)
+
+        t = Table(title="🔍 Action Explanation & Security Context", border_style="yellow")
+        t.add_column("Property", style="bold cyan")
+        t.add_column("Details", style="white")
+        t.add_row("Tool Requested", tool_name)
+        t.add_row("Risk Level", f"[{risk_class}] {risk_desc}")
+        t.add_row("Model Proposer", model_name)
+        if why:
+            t.add_row("Rationale", why)
+        for k, v in args.items():
+            t.add_row(f"Argument: {k}", str(v))
+        console.print(t)
+        console.print()
 
     def _prompt_approval(
         self,
@@ -315,6 +362,16 @@ class PermissionManager:
         why: str,
     ) -> str:
         """Render interactive approval prompt defaulting to deny."""
+        # 1. Stop any background status spinner so it cannot overwrite prompt
+        try:
+            from ijachi_router.ui.activity import ensure_spinners_stopped
+            ensure_spinners_stopped()
+        except Exception:
+            pass
+
+        # 2. Sanitize terminal: flush buffered newlines/keys from network lag and ensure canonical echo
+        _sanitize_terminal_input()
+
         console.print(f"\n[bold yellow]⚠️ Approval Required [{risk_class}][/bold yellow]")
         console.print(f"  [dim]Action:[/dim]    [bold cyan]{tool_name}[/bold cyan]({args})")
         console.print(f"  [dim]Model:[/dim]     {model_name}")
@@ -323,7 +380,14 @@ class PermissionManager:
 
         prompt_str = "Allow? [y] once, [s] this session, [a] always, [n] no (default), [e] explain: "
         try:
-            val = input(prompt_str).strip().lower()
+            if sys.stdin.isatty():
+                try:
+                    from prompt_toolkit import prompt as pt_prompt
+                    val = pt_prompt(prompt_str).strip().lower()
+                except Exception:
+                    val = input(prompt_str).strip().lower()
+            else:
+                val = input(prompt_str).strip().lower()
             return val if val else "n"  # default is deny on Enter alone!
         except (KeyboardInterrupt, EOFError):
             return "n"

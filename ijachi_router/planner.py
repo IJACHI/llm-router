@@ -143,6 +143,16 @@ def render_plan(plan: ExecutionPlan) -> None:
 
 def await_plan_approval() -> bool:
     """Ask the user to approve, reject, or (future) edit the plan."""
+    try:
+        from ijachi_router.ui.activity import ensure_spinners_stopped
+        ensure_spinners_stopped()
+    except Exception:
+        pass
+    try:
+        from ijachi_router.agent.permissions import _sanitize_terminal_input
+        _sanitize_terminal_input()
+    except Exception:
+        pass
     return Confirm.ask(
         "[bold yellow]Proceed with this plan?[/bold yellow]",
         default=True,

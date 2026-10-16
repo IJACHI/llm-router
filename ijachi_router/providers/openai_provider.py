@@ -18,11 +18,13 @@ class OpenAIProvider(Provider):
         if not api_key:
             raise ProviderError("OPENAI_API_KEY not set")
 
-        client = openai.OpenAI(api_key=api_key)
+        timeout_sec = float(kwargs.get("timeout", 45.0))
+        client = openai.OpenAI(api_key=api_key, timeout=timeout_sec)
         resp = client.chat.completions.create(
             model=self.model_id,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=kwargs.get("max_tokens", 1024),
+            timeout=timeout_sec,
         )
         text = resp.choices[0].message.content or ""
         return text, resp.usage.prompt_tokens, resp.usage.completion_tokens

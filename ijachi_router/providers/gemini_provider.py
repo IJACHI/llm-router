@@ -17,14 +17,17 @@ class GeminiProvider(Provider):
                 "openai package not installed (required for Gemini API compatibility). Run: pip install openai"
             ) from e
 
+        timeout_sec = float(kwargs.get("timeout", 45.0))
         client = openai.OpenAI(
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            timeout=timeout_sec,
         )
         resp = client.chat.completions.create(
             model=self.model_id,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=kwargs.get("max_tokens", 4096),
+            timeout=timeout_sec,
         )
         text = resp.choices[0].message.content or ""
         in_tokens = resp.usage.prompt_tokens if resp.usage else 0

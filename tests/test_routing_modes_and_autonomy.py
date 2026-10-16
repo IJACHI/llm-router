@@ -358,5 +358,73 @@ def test_architect_skips_run_and_execution_commands(tmp_path):
     assert detect_and_determine_tech_stack("test the app", tmp_path, state) is None
 
 
+def test_permission_prompt_natural_responses(tmp_path, monkeypatch):
+    from ijachi_router.agent.permissions import PermissionManager, _sanitize_terminal_input
+
+    # Test "yes" natural response
+    pm = PermissionManager(mode="manual", is_tty=True)
+    pm.is_tty = True  # force interactive for test
+    monkeypatch.setattr(pm, "_prompt_approval", lambda *args, **kwargs: "yes")
+    res_yes = pm.authorize_tool_call("Write", {"path": "test.txt", "content": "hi"}, workspace_dir=tmp_path)
+    assert res_yes.allowed is True
+
+    # Test "yep"
+    monkeypatch.setattr(pm, "_prompt_approval", lambda *args, **kwargs: "yep")
+    res_yep = pm.authorize_tool_call("Write", {"path": "test.txt", "content": "hi"}, workspace_dir=tmp_path)
+    assert res_yep.allowed is True
+
+    # Test "always"
+    monkeypatch.setattr(pm, "_prompt_approval", lambda *args, **kwargs: "always")
+    res_always = pm.authorize_tool_call("Write", {"path": "test.txt", "content": "hi"}, workspace_dir=tmp_path)
+    assert res_always.allowed is True
+
+    # Test "session"
+    monkeypatch.setattr(pm, "_prompt_approval", lambda *args, **kwargs: "session")
+    res_session = pm.authorize_tool_call("Write", {"path": "test.txt", "content": "hi"}, workspace_dir=tmp_path)
+    assert res_session.allowed is True
+
+    # Test "no" and default deny
+    monkeypatch.setattr(pm, "_prompt_approval", lambda *args, **kwargs: "no")
+    res_no = pm.authorize_tool_call("Bash", {"command": "rm -rf /tmp/foo"}, workspace_dir=tmp_path)
+    assert res_no.allowed is False
+
+
+def test_permission_prompt_explain_and_reprompt(tmp_path, monkeypatch):
+    from ijachi_router.agent.permissions import PermissionManager
+
+    pm = PermissionManager(mode="manual", is_tty=True)
+    pm.is_tty = True
+
+    # Simulate user typing "e" first, then "yes"
+    inputs = iter(["explain", "yes"])
+    monkeypatch.setattr(pm, "_prompt_approval", lambda *args, **kwargs: next(inputs))
+
+    res = pm.authorize_tool_call(
+        tool_name="Bash",
+        args={"command": "npm install"},
+        workspace_dir=tmp_path,
+        why_needed="Need packages for server",
+    )
+    assert res.allowed is True
+
+
+def test_terminal_sanitization_and_spinner_cleanup():
+    from ijachi_router.agent.permissions import _sanitize_terminal_input
+    from ijachi_router.ui.activity import CatchyStatusSpinner, ensure_spinners_stopped, _ACTIVE_SPINNERS
+
+    # Test terminal sanitization runs safely without raising
+    _sanitize_terminal_input()
+
+    # Test active spinner registration and cleanup
+    spinner = CatchyStatusSpinner(initial_phrase="Thinking...")
+    spinner.start()
+    assert spinner in _ACTIVE_SPINNERS
+    assert spinner._thread.is_alive()
+
+    ensure_spinners_stopped()
+    assert len(_ACTIVE_SPINNERS) == 0
+    assert not spinner._thread.is_alive()
+
+
 
 

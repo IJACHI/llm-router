@@ -18,7 +18,7 @@ class LocalProvider(Provider):
             resp = requests.post(
                 f"{host}/api/generate",
                 json={"model": self.model_id, "prompt": prompt, "stream": stream_mode},
-                timeout=kwargs.get("timeout", 180),
+                timeout=kwargs.get("timeout", 45),
                 stream=stream_mode,
             )
             if resp.status_code == 404:

@@ -18,11 +18,13 @@ class AnthropicProvider(Provider):
         if not api_key:
             raise ProviderError("ANTHROPIC_API_KEY not set")
 
-        client = anthropic.Anthropic(api_key=api_key)
+        timeout_sec = float(kwargs.get("timeout", 45.0))
+        client = anthropic.Anthropic(api_key=api_key, timeout=timeout_sec)
         resp = client.messages.create(
             model=self.model_id,
             max_tokens=kwargs.get("max_tokens", 1024),
             messages=[{"role": "user", "content": prompt}],
+            timeout=timeout_sec,
         )
         text = "".join(block.text for block in resp.content if hasattr(block, "text"))
         return text, resp.usage.input_tokens, resp.usage.output_tokens

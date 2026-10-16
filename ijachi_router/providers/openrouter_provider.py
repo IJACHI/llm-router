@@ -17,11 +17,17 @@ class OpenRouterProvider(Provider):
                 "openai package not installed (required for OpenRouter API calls). Run: pip install openai"
             ) from e
 
-        client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        timeout_sec = float(kwargs.get("timeout", 45.0))
+        client = openai.OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            timeout=timeout_sec,
+        )
         resp = client.chat.completions.create(
             model=self.model_id,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=kwargs.get("max_tokens", 1024),
+            timeout=timeout_sec,
         )
         text = resp.choices[0].message.content or ""
         in_tokens = resp.usage.prompt_tokens if resp.usage else 0
