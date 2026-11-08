@@ -58,6 +58,10 @@ class CatchyStatusSpinner:
         self._phrase_cycle = itertools.cycle(CATCHY_PHRASES)
 
     def _spin_loop(self):
+        if not sys.stdout.isatty():
+            self._stop_event.wait()
+            return
+
         spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         frame_idx = 0
         current_phrase = self.initial_phrase
@@ -78,7 +82,7 @@ class CatchyStatusSpinner:
                 sys.stdout.flush()
             time.sleep(0.1)
 
-        # Clear line on stop
+        # Clear line on stop (only reached on a TTY)
         try:
             sys.stdout.write("\r\033[K")
             sys.stdout.flush()
@@ -97,8 +101,9 @@ class CatchyStatusSpinner:
             self._thread.join(timeout=1.0)
         _ACTIVE_SPINNERS.discard(self)
         try:
-            sys.stdout.write("\r\033[K")
-            sys.stdout.flush()
+            if sys.stdout.isatty():
+                sys.stdout.write("\r\033[K")
+                sys.stdout.flush()
         except Exception:
             pass
 
@@ -108,6 +113,74 @@ class CatchyStatusSpinner:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
+
+
+class StreamPrinter:
+    """Prints model text to the terminal as it streams in.
+
+    ``json_guard``: in text-protocol mode a response that starts like a JSON tool call
+    (``{`` or a code fence) is a tool call, not prose for the user, so it is not printed.
+    """
+
+    _GUARD_CHARS = 3
+
+    def __init__(self, write: Callable[[str], None] | None = None):
+        self._write = write or self._stdout_write
+        self._reset(json_guard=False)
+
+    @staticmethod
+    def _stdout_write(text: str) -> None:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    def _reset(self, json_guard: bool) -> None:
+        self.json_guard = json_guard
+        self._pending = ""
+        self._decided = not json_guard
+        self._suppressed = False
+        self.printed = ""
+
+    def start(self, json_guard: bool = False) -> None:
+        self._reset(json_guard)
+
+    def _emit(self, text: str) -> None:
+        if not text:
+            return
+        if not self.printed:
+            ensure_spinners_stopped()
+            text = text.lstrip("\n")
+            if not text:
+                return
+        self.printed += text
+        self._write(text)
+
+    def feed(self, piece: str) -> None:
+        if self._suppressed or not piece:
+            return
+        if self._decided:
+            self._emit(piece)
+            return
+        self._pending += piece
+        head = self._pending.lstrip()
+        if len(head) < self._GUARD_CHARS:
+            return
+        self._decided = True
+        if head.startswith("{") or head.startswith("```"):
+            self._suppressed = True
+            self._pending = ""
+            return
+        self._emit(self._pending)
+        self._pending = ""
+
+    def end(self) -> str:
+        if not self._decided and not self._suppressed:
+            head = self._pending.lstrip()
+            if head and not (head.startswith("{") or head.startswith("```")):
+                self._emit(self._pending)
+        self._pending = ""
+        if self.printed and not self.printed.endswith("\n"):
+            self._write("\n")
+        return self.printed
 
 
 def render_routing_badge(model_id: str, provider: str, cost: float, reason: str, quality_tier: int = 2) -> None:

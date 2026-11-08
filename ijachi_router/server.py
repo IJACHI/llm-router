@@ -6,14 +6,19 @@ Gated behind Pro tier license key verification.
 
 from __future__ import annotations
 
+import contextlib
+import hmac
 import json
+import os
+import secrets
 import socketserver
+import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from ijachi_router.core import route
-from ijachi_router.license import check_pro_access, is_pro_active, validate_license_key
+from ijachi_router.license import check_pro_access
 from ijachi_router.metrics import _HISTORY_PATH, load_history
 
 _DASHBOARD_HTML = """<!DOCTYPE html>
@@ -93,9 +98,23 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
 
     <script>
+        // The API token arrives in the URL fragment (never sent to the server in logs) and is
+        // remembered for this browser tab only.
+        function apiToken() {
+            const m = location.hash.match(/token=([^&]+)/);
+            if (m) { sessionStorage.setItem('ijr_token', decodeURIComponent(m[1])); history.replaceState(null, '', location.pathname); }
+            return sessionStorage.getItem('ijr_token') || '';
+        }
+        function esc(v) {
+            return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
         async function fetchStats() {
             try {
-                const res = await fetch('/v1/stats');
+                const res = await fetch('/v1/stats', { headers: { 'Authorization': 'Bearer ' + apiToken() } });
+                if (res.status === 401) {
+                    document.getElementById('model-rows').innerHTML = '<tr><td colspan="5" style="text-align:center;">Open the dashboard with the link printed by <code>ijachi-router serve</code> (it includes the access token).</td></tr>';
+                    return;
+                }
                 const data = await res.json();
                 document.getElementById('total-calls').innerText = data.total_calls || 0;
                 document.getElementById('total-cost').innerText = '$' + (data.total_cost_usd || 0).toFixed(4);
@@ -103,8 +122,8 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 
                 const rowsHtml = Object.entries(data.models || {}).map(([model, m]) => `
                     <tr>
-                        <td><strong>${model}</strong></td>
-                        <td>${m.provider}</td>
+                        <td><strong>${esc(model)}</strong></td>
+                        <td>${esc(m.provider)}</td>
                         <td>${m.calls}</td>
                         <td>$${m.cost.toFixed(4)}</td>
                         <td>${(m.total_latency / (m.calls || 1)).toFixed(2)}s</td>
@@ -122,6 +141,10 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 """
 
 
+_MAX_BODY_BYTES = 2_000_000
+_AGENT_MODES = {"auto-safe", "plan", "semi-auto", "auto"}
+
+
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     """Multi-threaded HTTP server."""
 
@@ -135,7 +158,6 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -145,18 +167,46 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com")
         self.end_headers()
         self.wfile.write(body)
 
     def _verify_auth(self) -> bool:
-        """Verify API key in request header or server Pro license state."""
+        """Every API request must carry this server's access token (constant-time compare)."""
+        expected = getattr(self.server, "api_token", None)
         auth_header = self.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
-            valid, _ = validate_license_key(token)
-            if valid:
-                return True
-        return is_pro_active()
+        if not expected or not auth_header.startswith("Bearer "):
+            return False
+        return hmac.compare_digest(auth_header[7:].strip().encode(), expected.encode())
+
+    def _reject(self) -> None:
+        self._send_json(401, {
+            "error": "Unauthorized",
+            "message": "Send the server access token: Authorization: Bearer <token> "
+                       "(printed by `ijachi-router serve`, or set via IJACHI_SERVER_TOKEN).",
+        })
+
+    def _read_json(self) -> dict | None:
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = 0
+        if length > _MAX_BODY_BYTES:
+            self._send_json(413, {"error": "Request body too large"})
+            return None
+        body = self.rfile.read(length) if length else b""
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except Exception:
+            self._send_json(400, {"error": "Invalid JSON payload"})
+            return None
+        if not isinstance(payload, dict):
+            self._send_json(400, {"error": "JSON body must be an object"})
+            return None
+        return payload
+
+    def log_message(self, format, *args):  # noqa: A002 - keep tokens out of stderr access logs
+        return
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -166,14 +216,7 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/v1/stats":
             if not self._verify_auth():
-                self._send_json(
-                    403,
-                    {
-                        "error": "Pro License Required",
-                        "message": "Include a valid Pro license key in header: Authorization: Bearer IJPRO-...",
-                        "paystack_url": "https://paystack.shop/pay/enlqpvzflw",
-                    },
-                )
+                self._reject()
                 return
 
             records = load_history()
@@ -213,22 +256,11 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/v1/route":
             if not self._verify_auth():
-                self._send_json(
-                    403,
-                    {
-                        "error": "Pro License Required",
-                        "message": "Include a valid Pro license key in header: Authorization: Bearer IJPRO-...",
-                        "paystack_url": "https://paystack.shop/pay/enlqpvzflw",
-                    },
-                )
+                self._reject()
                 return
 
-            content_length = int(self.headers.get("Content-Length", 0))
-            body_bytes = self.rfile.read(content_length)
-            try:
-                payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
-            except Exception:
-                self._send_json(400, {"error": "Invalid JSON payload"})
+            payload = self._read_json()
+            if payload is None:
                 return
 
             prompt = payload.get("prompt")
@@ -250,7 +282,7 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
                         "provider": res.provider,
                         "cost_usd": res.cost,
                         "latency_sec": res.latency_sec,
-                        "category": res.category,
+                        "category": getattr(res, "category", None),
                     },
                 )
             except Exception as e:
@@ -259,22 +291,11 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/v1/agent/run":
             if not self._verify_auth():
-                self._send_json(
-                    403,
-                    {
-                        "error": "Pro License Required",
-                        "message": "Include a valid Pro license key in header: Authorization: Bearer IJPRO-...",
-                        "paystack_url": "https://paystack.shop/pay/enlqpvzflw",
-                    },
-                )
+                self._reject()
                 return
 
-            content_length = int(self.headers.get("Content-Length", 0))
-            body_bytes = self.rfile.read(content_length)
-            try:
-                payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
-            except Exception:
-                self._send_json(400, {"error": "Invalid JSON payload"})
+            payload = self._read_json()
+            if payload is None:
                 return
 
             task = payload.get("task")
@@ -282,31 +303,40 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Missing 'task' in request body"})
                 return
 
-            priority = payload.get("priority", "balanced")
-            max_steps = int(payload.get("max_steps", 10))
+            priority = payload.get("priority")
+            max_steps = max(1, min(int(payload.get("max_steps", 10)), 50))
+            mode = payload.get("permission_mode", "auto-safe")
+            if mode not in _AGENT_MODES:
+                self._send_json(400, {"error": f"permission_mode must be one of {sorted(_AGENT_MODES)}"})
+                return
 
             try:
-                from ijachi_router.agent import AgenticRouter
+                from ijachi_router.agent.limits import LoopLimits
+                from ijachi_router.agent.loop import AgentSessionLoop
+                from ijachi_router.session.store import SessionStore
 
-                agent = AgenticRouter(priority=priority, require_approval=False)
-                result = agent.run(task, max_steps=max_steps)
+                store = SessionStore(workspace_dir=getattr(self.server, "workspace_dir", Path.cwd()))
+                if priority:
+                    store.state.priority = priority
+                loop = AgentSessionLoop(store=store, permission_mode=mode, limits=LoopLimits(max_turns=max_steps))
+                loop.permissions.is_tty = False  # HTTP callers can never answer an approval prompt
+                with contextlib.redirect_stdout(sys.stderr):
+                    result = loop.execute_turn(task)
+                steps = [
+                    {"tool": e.tool_call.get("name"), "args": e.tool_call.get("args"), "thought": e.tool_call.get("thought", "")}
+                    for e in store.read_events() if e.type == "tool_call" and e.turn == store.state.turn_count
+                ]
                 self._send_json(
                     200,
                     {
                         "status": "success",
-                        "final_text": result.final_text,
-                        "steps": [
-                            {
-                                "step": s.step_number,
-                                "thought": s.thought,
-                                "tool": s.tool_name,
-                                "model": s.model_used,
-                                "cost_usd": s.cost_usd,
-                            }
-                            for s in result.steps
-                        ],
-                        "total_cost_usd": result.total_cost_usd,
+                        "final_text": result.text,
+                        "session_id": store.session_id,
+                        "model": f"{result.provider_used}/{result.model_used}",
+                        "steps": steps,
+                        "total_cost_usd": result.cost_usd,
                         "completed": result.completed,
+                        "denied_actions": result.denied_actions,
                     },
                 )
             except Exception as e:
@@ -316,14 +346,28 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Endpoint not found"})
 
 
-def start_server(host: str = "127.0.0.1", port: int = 8000) -> HTTPServer | None:
-    """Start the Pro REST API Gateway & Web Dashboard server."""
+def start_server(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    token: str | None = None,
+    workspace_dir: Path | str | None = None,
+) -> HTTPServer | None:
+    """Start the Pro REST API Gateway & Web Dashboard server.
+
+    The Pro license is checked once here. Every API request must then present this server's
+    access token, so a licensed server is not open to anyone who can reach the port.
+    """
     if not check_pro_access("REST API Gateway & Web Dashboard"):
         return None
 
-    server_address = (host, port)
-    httpd = ThreadedHTTPServer(server_address, RouterRequestHandler)
+    httpd = ThreadedHTTPServer((host, port), RouterRequestHandler)
+    httpd.api_token = token or os.environ.get("IJACHI_SERVER_TOKEN") or secrets.token_urlsafe(24)
+    httpd.workspace_dir = Path(workspace_dir or Path.cwd()).resolve()
+    shown = "(from IJACHI_SERVER_TOKEN)" if not token and os.environ.get("IJACHI_SERVER_TOKEN") else httpd.api_token
     print(f"🚀 ijachi-llm-router Pro Server running on http://{host}:{port}")
-    print(f"📊 Web Telemetry Dashboard: http://{host}:{port}/")
-    print(f"⚡ REST API Endpoint: POST http://{host}:{port}/v1/route")
+    print(f"🔑 Access token: {shown}")
+    print(f"📊 Web Telemetry Dashboard: http://{host}:{port}/#token={httpd.api_token}")
+    print(f"⚡ REST API Endpoint: POST http://{host}:{port}/v1/route  (Authorization: Bearer <token>)")
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print("⚠️  Listening beyond localhost: traffic is plain HTTP. Put it behind a TLS proxy and keep the token secret.")
     return httpd

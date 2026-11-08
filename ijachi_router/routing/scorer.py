@@ -85,10 +85,15 @@ def score_candidate(
 
     # 3. Model stickiness bonus (Document 3.6)
     # The current model receives a score bonus that grows with cached tokens to prevent thrashing
+    # Sized to break near-ties (and reward a warm prompt cache) without overriding a clearly
+    # better or cheaper candidate: base scores span roughly 0-1.
     stickiness_bonus = 0.0
     if is_current_model:
-        # Cache benefit bonus
         cache_factor = min(cached_tokens / 10_000.0, 1.0)
-        stickiness_bonus = 0.25 + (0.25 * cache_factor)
+        stickiness_bonus = 0.08 + (0.12 * cache_factor)
 
-    return base_score + stickiness_bonus
+    # 4. Learned adjustment from recorded outcomes for this model and task category.
+    from ijachi_router.routing.outcomes import bonus as learned_bonus
+    learned = learned_bonus(f"{model.provider}/{model.model_id}", need.category)
+
+    return base_score + stickiness_bonus + learned

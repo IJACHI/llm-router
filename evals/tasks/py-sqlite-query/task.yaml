@@ -1,0 +1,6 @@
+id: py-sqlite-query
+category: code
+difficulty: medium
+prompt: 'Implement top_customers(conn, n) in queries.py: return the n customer names
+  with the highest total order amount, highest first, as a list of strings.'
+check: python3 -m unittest discover -q -s . -p 'test_*.py'

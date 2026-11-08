@@ -11,6 +11,7 @@ Responsibilities
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,11 +45,16 @@ class ModelConfig:
     @classmethod
     def from_dict(cls, d: dict) -> "ModelConfig":
         mid = d["model_id"].lower()
+        # Fallback guess only — catalog entries should set quality_tier explicitly. Match whole
+        # name tokens so e.g. "gemini" does not count as "mini" and "deepseek-r1:7b" is not "r1".
+        tokens = set(re.split(r"[-_:/.@\s]+", mid))
         default_tier = 2
-        if any(term in mid for term in ("3b", "1b", "lite", "mini", "small")):
+        if tokens & {"1b", "3b", "7b", "lite", "mini", "small", "nano", "tiny"}:
             default_tier = 1
-        elif any(term in mid for term in ("sonnet", "opus", "gpt-4o", "405b", "pro", "r1", "32b", "70b")):
+        elif tokens & {"sonnet", "opus", "405b", "pro", "o1"}:
             default_tier = 4
+        elif tokens & {"70b", "32b", "4o", "large", "max"}:
+            default_tier = 3
         elif d.get("speed_tier") == "slow":
             default_tier = 3
         elif "code" in d.get("tags", []) or "reasoning" in d.get("tags", []):
@@ -80,6 +86,8 @@ class RouterConfig:
     priority: str = "efficient"          # efficient | cheapest | best | best-fit (or legacy speed)
     max_cost_per_call: float | None = None
     available_providers: set[str] = field(default_factory=set)
+    # Model names pulled into the local Ollama server (None = not probed / unknown).
+    local_models: set[str] | None = None
 
     # ── Derived helpers ─────────────────────────────────────────────────────
 
@@ -87,8 +95,12 @@ class RouterConfig:
         return [m for m in self.models if m.provider == provider]
 
     def available_models(self) -> list[ModelConfig]:
-        """Return only models whose provider has a key configured."""
-        return [m for m in self.models if m.provider in self.available_providers]
+        """Return only models whose provider is usable (key configured / Ollama model pulled)."""
+        return [
+            m for m in self.models
+            if m.provider in self.available_providers
+            and not (m.provider == "local" and self.local_models is not None and m.model_id not in self.local_models)
+        ]
 
     def models_for_category(self, category: str) -> list[ModelConfig]:
         """Return available models that have *category* in their tags."""
@@ -164,7 +176,11 @@ def _detect_available_providers(models: list[ModelConfig]) -> set[str]:
     for provider in listed_providers:
         env_key = _PROVIDER_ENV_KEYS.get(provider)
         if env_key is None:
-            # No key needed (local/Ollama)
+            # No key needed (local/Ollama) — but only usable if the server is actually running.
+            if provider == "local":
+                from ijachi_router.providers.local_provider import list_pulled_models
+                if list_pulled_models() is None:
+                    continue
             available.add(provider)
         elif os.environ.get(env_key):
             available.add(provider)
@@ -240,17 +256,22 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
     Returns:
         A fully populated RouterConfig.
     """
-    if models_yaml:
-        yaml_path = Path(models_yaml)
-    else:
-        try:
-            from ijachi_router.catalog_updater import get_cached_catalog_path
-            cached = get_cached_catalog_path()
-            yaml_path = cached if cached else _DEFAULT_MODELS_YAML
-        except Exception:
-            yaml_path = _DEFAULT_MODELS_YAML
-
+    yaml_path = Path(models_yaml) if models_yaml else _DEFAULT_MODELS_YAML
     models = _load_models(yaml_path)
+    if not models_yaml:
+        # Refreshed prices (ijachi-router update-catalog) overlay the curated catalog.
+        try:
+            from ijachi_router.catalog_updater import load_price_overlay
+            overlay = load_price_overlay()
+        except Exception:
+            overlay = {}
+        for m in models:
+            fresh = overlay.get(f"{m.provider}/{m.model_id}")
+            if fresh:
+                m.input_per_1k = float(fresh.get("input_per_1k", m.input_per_1k))
+                m.output_per_1k = float(fresh.get("output_per_1k", m.output_per_1k))
+                if fresh.get("max_context"):
+                    m.max_context = int(fresh["max_context"])
 
     user = _load_user_config()
     priority = normalize_mode(user.get("priority", "efficient"))
@@ -260,11 +281,16 @@ def load_config(models_yaml: str | Path | None = None) -> RouterConfig:
         max_cost = float(max_cost)
 
     available = _detect_available_providers(models)
+    local_models = None
+    if "local" in available:
+        from ijachi_router.providers.local_provider import list_pulled_models
+        local_models = list_pulled_models()
 
     return RouterConfig(
         models=models,
         priority=priority,
         max_cost_per_call=max_cost,
         available_providers=available,
+        local_models=local_models,
     )
 

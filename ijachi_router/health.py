@@ -44,7 +44,7 @@ def check_providers_quick(config) -> list[ProviderStatus]:
 
     # Determine top-ranked available model
     from ijachi_router.core import _rank_models
-    from ijachi_router.classifier import predict_category, complexity_score
+    from ijachi_router.routing.classifier import predict_category, complexity_score
     try:
         ranked = _rank_models(config, "simple-qa", 0.1)
         if ranked:

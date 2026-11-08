@@ -117,6 +117,24 @@ def detect_and_determine_tech_stack(
     if (ws / "go.mod").exists():
         return None
 
+    # Only for genuinely new projects: an existing codebase already has a stack.
+    markers = ("pyproject.toml", "requirements.txt", "setup.py", "Gemfile", "pom.xml", "build.gradle", "composer.json")
+    if any((ws / m).exists() for m in markers):
+        return None
+    try:
+        visible = [p for p in ws.iterdir() if not p.name.startswith(".")]
+    except OSError:
+        visible = []
+    if len(visible) > 3:
+        return None
+    # A request about a specific file ("create hello.txt") is not a project.
+    if re.search(r"\b[\w\-/]+\.[a-z0-9]{1,5}\b", p_lower):
+        return None
+    project_nouns = ("app", "application", "website", "web app", "project", "service", "api", "dashboard",
+                     "portal", "platform", "bot", "tool", "pipeline", "newsletter", "backend", "frontend", "site")
+    if not any(re.search(r"\b" + re.escape(n) + r"s?\b", p_lower) for n in project_nouns):
+        return None
+
     # 2. If prompt is not a project creation or scaffolding request, skip
     creation_verbs = ["build", "create", "scaffold", "develop", "implement", "make a", "generate a", "start a new", "code a"]
     if not any(v in p_lower for v in creation_verbs):

@@ -417,6 +417,8 @@ def test_at_18_non_interactive_print_mode(tmp_path):
         mock_res.latency_sec = 0.1
         mock_res.input_tokens = 10
         mock_res.output_tokens = 2
+        mock_res.denied_actions = 0
+        mock_res.limit_hit = None
         mock_turn.return_value = mock_res
 
         result = runner.invoke(code_cli, ["-p", "What is 2+2?", "--cwd", str(tmp_path)])

@@ -1,0 +1,6 @@
+id: py-ambiguous-edit
+category: code-edit/refactor
+difficulty: medium
+prompt: In prices.py, only the *wholesale* price should apply a 10% discount (multiply
+  by 0.9). Do not change retail_price.
+check: python3 -m unittest discover -q -s . -p 'test_*.py'

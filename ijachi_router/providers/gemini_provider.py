@@ -1,35 +1,10 @@
-import os
-from ijachi_router.providers.base import Provider, ProviderError
+"""gemini adapter (OpenAI-compatible endpoint)."""
+
+from ijachi_router.providers.openai_compat import OpenAICompatibleProvider
 
 
-class GeminiProvider(Provider):
+class GeminiProvider(OpenAICompatibleProvider):
     name = "gemini"
-
-    def _call(self, prompt: str, **kwargs) -> tuple[str, int, int]:
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            raise ProviderError("GEMINI_API_KEY or GOOGLE_API_KEY not set")
-
-        try:
-            import openai
-        except ImportError as e:
-            raise ProviderError(
-                "openai package not installed (required for Gemini API compatibility). Run: pip install openai"
-            ) from e
-
-        timeout_sec = float(kwargs.get("timeout", 45.0))
-        client = openai.OpenAI(
-            api_key=api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            timeout=timeout_sec,
-        )
-        resp = client.chat.completions.create(
-            model=self.model_id,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=kwargs.get("max_tokens", 4096),
-            timeout=timeout_sec,
-        )
-        text = resp.choices[0].message.content or ""
-        in_tokens = resp.usage.prompt_tokens if resp.usage else 0
-        out_tokens = resp.usage.completion_tokens if resp.usage else 0
-        return text, in_tokens, out_tokens
+    key_envs = ('GEMINI_API_KEY', 'GOOGLE_API_KEY')
+    key_error = 'GEMINI_API_KEY or GOOGLE_API_KEY not set'
+    base_url = 'https://generativelanguage.googleapis.com/v1beta/openai/'

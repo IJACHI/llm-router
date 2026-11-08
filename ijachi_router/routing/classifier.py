@@ -13,7 +13,6 @@ import csv
 import hashlib
 import json
 import math
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -89,6 +88,10 @@ def complexity_score(prompt: str) -> float:
     scope_score = min(scope_hits / 3, 1.0) * 0.4
 
     score = length_score + step_score + tech_score + scope_score
+    # Asking to build a whole app/website/platform is a long multi-file agent task even when the
+    # prompt is short: small models usually fail it, which costs more than a capable model.
+    if scope_hits and re.search(r"\b(build|create|make|develop|implement|scaffold|set up)\b", lower):
+        score = max(score, 0.75)
     return round(min(max(score, 0.0), 1.0), 3)
 
 
@@ -107,136 +110,217 @@ def _keyword_classify(prompt: str) -> tuple[str, float]:
     return best_cat, round(confidence, 2)
 
 
-class SafeModel:
-    """Non-executable linear model storing vocabulary and weights in JSON."""
+# ---------------------------------------------------------------------------
+# Learned model (TF-IDF + multinomial logistic regression), stored as plain JSON
+# ---------------------------------------------------------------------------
+#
+# Featurization is implemented here so inference needs no scikit-learn and never unpickles
+# anything. It mirrors sklearn's TfidfVectorizer(ngram_range=(1, 2)) defaults exactly
+# (lowercase, token pattern \b\w\w+\b, smooth idf, l2 norm), which training relies on, plus
+# a few pseudo-tokens so that maths notation is visible to the model.
 
-    def __init__(self, vocab: dict[str, int], classes: list[str], weights: list[list[float]], intercepts: list[float], checksum: str):
+_BUNDLED_MODEL_PATH = Path(__file__).parent.parent / "data" / "classifier_model.json"
+_TOKEN_RE = re.compile(r"(?u)\b\w\w+\b")
+_MODEL_FORMAT = "tfidf_logreg_v2"
+
+
+def preprocess(text: str) -> str:
+    """Lowercase and append pseudo-tokens for numbers / operators / code-ish punctuation."""
+    lower = text.lower()
+    extra: list[str] = []
+    if re.search(r"\d", lower):
+        extra.append("zznum")
+    if re.search(r"\d\s*[-+*/^=<>]\s*[\dx(]|[a-z]\^\d|\b\d+x\b|sqrt|∫|√", lower):
+        extra.append("zzmathop")
+    if re.search(r"[{}();]|=>|::|\.\w+\(|\b\w+\.(py|js|ts|go|rs|java|cpp|rb|sql)\b", lower):
+        extra.append("zzcodechar")
+    if len(lower.split()) <= 6:
+        extra.append("zzshort")
+    return lower + (" " + " ".join(extra) if extra else "")
+
+
+def _ngrams(text: str) -> list[str]:
+    toks = _TOKEN_RE.findall(text)
+    return toks + [f"{a} {b}" for a, b in zip(toks, toks[1:])]
+
+
+class SafeModel:
+    """Non-executable linear model: vocabulary, idf, weights and intercepts in JSON."""
+
+    def __init__(self, vocab: dict[str, int], idf: list[float], classes: list[str],
+                 weights: list[list[float]], intercepts: list[float], checksum: str, meta: dict | None = None):
         self.vocab = vocab
+        self.idf = idf
         self.classes = classes
         self.weights = weights
         self.intercepts = intercepts
         self.checksum = checksum
+        self.meta = meta or {}
+
+    @staticmethod
+    def _checksum(data: dict) -> str:
+        body = json.dumps([data["weights"], data["intercepts"], data["idf"]]).encode()
+        return hashlib.sha256(body).hexdigest()[:16]
 
     @classmethod
-    def load(cls, path: Path) -> SafeModel | None:
+    def load(cls, path: Path) -> "SafeModel | None":
         if not path.exists():
             return None
         try:
-            content = path.read_text(encoding="utf-8")
-            data = json.loads(content)
-            expected_checksum = data.get("checksum")
-            actual_checksum = hashlib.sha256(json.dumps(data["weights"]).encode()).hexdigest()[:16]
-            if expected_checksum and expected_checksum != actual_checksum:
-                # Checksum mismatch! Refuse to load tampered artifact (SEC-14)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("format") != _MODEL_FORMAT:
                 return None
-            return cls(
-                vocab=data["vocab"],
-                classes=data["classes"],
-                weights=data["weights"],
-                intercepts=data["intercepts"],
-                checksum=actual_checksum,
-            )
+            if data.get("checksum") != cls._checksum(data):
+                return None  # tampered or corrupt artifact (SEC-14)
+            return cls(data["vocab"], data["idf"], data["classes"], data["weights"], data["intercepts"],
+                       data["checksum"], data.get("meta"))
         except Exception:
             return None
 
-    def predict(self, text: str) -> tuple[str, float]:
-        tokens = re.findall(r"\b\w+\b", text.lower())
-        vec: dict[int, float] = {}
-        for t in tokens:
-            idx = self.vocab.get(t)
+    def features(self, text: str) -> dict[int, float]:
+        counts: dict[int, float] = {}
+        for g in _ngrams(preprocess(text)):
+            idx = self.vocab.get(g)
             if idx is not None:
-                vec[idx] = vec.get(idx, 0.0) + 1.0
+                counts[idx] = counts.get(idx, 0.0) + 1.0
+        vec = {i: c * self.idf[i] for i, c in counts.items()}
+        norm = math.sqrt(sum(v * v for v in vec.values()))
+        return {i: v / norm for i, v in vec.items()} if norm else {}
 
-        scores = list(self.intercepts)
-        for class_idx in range(len(self.classes)):
-            w_class = self.weights[class_idx]
-            for feat_idx, val in vec.items():
-                if feat_idx < len(w_class):
-                    scores[class_idx] += w_class[feat_idx] * val
+    def predict_proba(self, text: str) -> list[float]:
+        vec = self.features(text)
+        scores = [
+            self.intercepts[c] + sum(self.weights[c][i] * v for i, v in vec.items())
+            for c in range(len(self.classes))
+        ]
+        top = max(scores)
+        exp = [math.exp(s - top) for s in scores]
+        total = sum(exp)
+        return [e / total for e in exp]
 
-        # Softmax
-        max_s = max(scores)
-        exp_s = [math.exp(s - max_s) for s in scores]
-        sum_exp = sum(exp_s)
-        probs = [e / sum_exp for e in exp_s]
-
-        best_idx = max(range(len(probs)), key=lambda i: probs[i])
-        return self.classes[best_idx], round(probs[best_idx], 3)
+    def predict(self, text: str) -> tuple[str, float]:
+        probs = self.predict_proba(text)
+        best = max(range(len(probs)), key=lambda i: probs[i])
+        return self.classes[best], round(probs[best], 3)
 
 
 _safe_model: SafeModel | None = None
 
 
+def _data_sha256(path: Path = _DATA_PATH) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
 def get_safe_model() -> SafeModel | None:
+    """User-retrained model if it matches the current training data, else the bundled one."""
     global _safe_model
-    if _safe_model is None and _SAFE_MODEL_PATH.exists():
-        _safe_model = SafeModel.load(_SAFE_MODEL_PATH)
+    if _safe_model is None:
+        user = SafeModel.load(_SAFE_MODEL_PATH)
+        if user is not None and user.meta.get("data_sha256") == _data_sha256():
+            _safe_model = user
+        else:
+            _safe_model = SafeModel.load(_BUNDLED_MODEL_PATH)
     return _safe_model
 
 
-def predict_category(prompt: str) -> tuple[str, float]:
-    """Predict task category and confidence for *prompt*."""
-    # Check keyword heuristics for developer tasks (code, debugging, code-edit)
-    cat, conf = _keyword_classify(prompt)
-    if cat in ("debugging", "code-edit/refactor", "code"):
-        return cat, conf
+_SUBCATEGORY_RULES = [r for r in _KEYWORD_RULES if r[0] in ("debugging", "code-edit/refactor")]
 
-    # If safe model exists, use it
+
+def predict_base_category(prompt: str) -> tuple[str, float]:
+    """One of the trained categories: code | math | creative | summarization | reasoning |
+    long-context | simple-qa."""
     model = get_safe_model()
-    if model:
-        pred_cat, pred_conf = model.predict(prompt)
-        # If model has strong confidence, use it
-        if pred_conf > 0.4:
-            return pred_cat, pred_conf
-
-    # Fallback to existing sklearn or keyword
-    try:
-        from ijachi_router.classifier import _get_model
-        sk_model = _get_model()
-        if sk_model:
-            import numpy as np
-            proba = sk_model.predict_proba([prompt])[0]
-            classes = sk_model.classes_
-            idx = int(np.argmax(proba))
-            return str(classes[idx]), round(float(proba[idx]), 3)
-    except Exception:
-        pass
-
+    if model is not None:
+        cat, conf = model.predict(prompt)
+        if conf >= 0.30:
+            return cat, conf
+    cat, conf = _keyword_classify(prompt)
+    if cat in ("debugging", "code-edit/refactor"):
+        cat = "code"
+    if model is not None and cat == "simple-qa":
+        return model.predict(prompt)
     return cat, conf
 
 
-def retrain_safe_model() -> None:
-    """Train linear classifier and save into non-executable JSON format with checksum."""
-    global _safe_model
+def predict_category(prompt: str) -> tuple[str, float]:
+    """Predict task category and confidence for *prompt* (adds debugging / refactor subtypes)."""
+    cat, conf = predict_base_category(prompt)
+    if cat == "code":
+        lower = prompt.lower()
+        for sub, keywords in _SUBCATEGORY_RULES:
+            if any(kw in lower for kw in keywords):
+                return sub, conf
+    return cat, conf
+
+
+# ---------------------------------------------------------------------------
+# Training (requires scikit-learn; used by `ijachi-router train` and scripts/)
+# ---------------------------------------------------------------------------
+
+def _read_csv(path: Path) -> tuple[list[str], list[str]]:
+    prompts, labels = [], []
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            if row.get("prompt") and row.get("category"):
+                prompts.append(row["prompt"])
+                labels.append(row["category"].strip())
+    return prompts, labels
+
+
+def train_model(data_path: Path = _DATA_PATH, eval_path: Path | None = None) -> dict[str, Any]:
+    """Train, pick C by stratified 5-fold CV, and return the JSON-serialisable model."""
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import StratifiedKFold, cross_val_score
+    from sklearn.pipeline import make_pipeline
 
-    prompts, labels = [], []
-    with open(_DATA_PATH, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            prompts.append(row["prompt"])
-            labels.append(row["category"])
+    prompts, labels = _read_csv(data_path)
+    docs = [preprocess(p) for p in prompts]
 
-    vec = TfidfVectorizer(ngram_range=(1, 2), min_df=1)
-    X = vec.fit_transform(prompts)
-    clf = LogisticRegression(max_iter=500, C=5.0)
-    clf.fit(X, labels)
+    def pipeline(c: float):
+        # lowercase=False: preprocess() already lowercased; token pattern = sklearn default.
+        return make_pipeline(
+            TfidfVectorizer(ngram_range=(1, 2), lowercase=False),
+            LogisticRegression(C=c, max_iter=2000, class_weight="balanced"),
+        )
 
-    vocab = {k: int(v) for k, v in vec.vocabulary_.items()}
-    classes = [str(c) for c in clf.classes_]
-    weights = clf.coef_.tolist()
-    intercepts = clf.intercept_.tolist()
-    checksum = hashlib.sha256(json.dumps(weights).encode()).hexdigest()[:16]
+    folds = StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
+    cv_scores = {c: float(cross_val_score(pipeline(c), docs, labels, cv=folds).mean()) for c in (1.0, 3.0, 10.0, 30.0)}
+    best_c = max(cv_scores, key=lambda c: cv_scores[c])
+    final = pipeline(best_c).fit(docs, labels)
+    vec, clf = final.steps[0][1], final.steps[1][1]
 
-    data = {
-        "format": "json_safe_weights_v1",
-        "checksum": checksum,
-        "classes": classes,
-        "vocab": vocab,
-        "weights": weights,
-        "intercepts": intercepts,
+    data: dict[str, Any] = {
+        "format": _MODEL_FORMAT,
+        "classes": [str(c) for c in clf.classes_],
+        "vocab": {k: int(v) for k, v in vec.vocabulary_.items()},
+        "idf": [float(x) for x in vec.idf_],
+        "weights": clf.coef_.tolist(),
+        "intercepts": clf.intercept_.tolist(),
+        "meta": {
+            "data_sha256": _data_sha256(data_path),
+            "n_examples": len(prompts),
+            "C": best_c,
+            "cv_accuracy": round(cv_scores[best_c], 4),
+        },
     }
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    _SAFE_MODEL_PATH.write_text(json.dumps(data), encoding="utf-8")
-    _safe_model = SafeModel.load(_SAFE_MODEL_PATH)
+    data["checksum"] = SafeModel._checksum(data)
+    if eval_path and eval_path.exists():
+        model = SafeModel(data["vocab"], data["idf"], data["classes"], data["weights"], data["intercepts"], data["checksum"])
+        ep, el = _read_csv(eval_path)
+        data["meta"]["eval_accuracy"] = round(sum(model.predict(p)[0] == l for p, l in zip(ep, el)) / len(ep), 4)
+    return data
+
+
+def retrain_safe_model(target: Path = _SAFE_MODEL_PATH) -> dict[str, Any]:
+    """Retrain from data/train_data.csv into the user cache; returns training metadata."""
+    global _safe_model
+    eval_path = _DATA_PATH.parent / "eval_prompts.csv"
+    data = train_model(_DATA_PATH, eval_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data), encoding="utf-8")
+    _safe_model = None
+    return data["meta"]

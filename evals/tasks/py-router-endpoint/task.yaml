@@ -1,0 +1,6 @@
+id: py-router-endpoint
+category: code
+difficulty: medium
+prompt: 'Add a GET /health route to app.py that returns status 200 with body {''ok'':
+  True}, following the existing route pattern. Keep /users working.'
+check: python3 -m unittest discover -q -s . -p 'test_*.py'

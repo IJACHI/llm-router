@@ -1,0 +1,141 @@
+prompt,category
+Add a health check endpoint to the Flask app,code
+The CI pipeline fails on the lint step; make it pass,code
+Write a Python function that validates credit card numbers with the Luhn algorithm,code
+Why does this async function return a Promise instead of the value?,code
+Create a SQLite schema for a library management system,code
+Refactor these nested if statements into a lookup table,code
+Implement drag and drop reordering in this Vue list,code
+Fix the off-by-one error in the pagination helper,code
+Write a GitHub Action that publishes the package to PyPI on tag,code
+Set up ESLint and Prettier for this TypeScript project,code
+Build a weather dashboard that calls a public API,code
+My Docker container exits immediately; help me fix the entrypoint,code
+Add unit tests covering the edge cases of parse_date,code
+Implement a trie for autocomplete suggestions,code
+Make the upload endpoint stream large files instead of loading them in memory,code
+Write a cron job script that cleans up temp files older than a week,code
+Replace the hard-coded config values with environment variables,code
+Create a websocket client that reconnects automatically,code
+Write a SQL view that joins orders with customers,code
+Profile this slow Python loop and speed it up,code
+What is 23 times 47?,math
+Solve x^2 - 9 = 0,math
+Find the integral of cos(3x),math
+What is the probability of getting at least one head in three coin flips?,math
+Compute the median of 4 8 15 16 23 42,math
+How many permutations of the letters in APPLE are there?,math
+Find the derivative of x^3 ln(x),math
+What is 7/9 as a decimal?,math
+Prove that the sum of two even numbers is even,math
+Calculate the hypotenuse of a right triangle with legs 5 and 12,math
+What is the least common multiple of 12 and 18?,math
+Find the area of a triangle with base 10 and height 6,math
+Solve 5x - 3 = 2x + 9,math
+Compute the inverse of the 2x2 matrix [[1 2] [3 4]],math
+What is the expected number of rolls to get a 6 on a fair die?,math
+Convert 72 degrees Fahrenheit to Celsius,math
+Evaluate the limit of sin(x)/x as x approaches 0,math
+What is 2 to the power of 15?,math
+Find the sum of the arithmetic series 5 + 10 + ... + 100,math
+What is the standard deviation of 1 2 3 4 5?,math
+Write a poem about a lighthouse keeper,creative
+Write a short story about a time traveler stuck in 1850,creative
+Suggest names for a podcast about urban gardening,creative
+Write a limerick about a cat who loves lasagna,creative
+Write a heartfelt anniversary message for my husband,creative
+Create a mascot and backstory for a robotics club,creative
+Write lyrics for a lullaby,creative
+Write a flash fiction piece about the last tree on Earth,creative
+Come up with a catchy slogan for a bike repair shop,creative
+Write a dialogue between the sun and the moon,creative
+Describe an alien marketplace in vivid detail,creative
+Write a haiku about morning coffee,creative
+Draft a whimsical invitation to a garden party,creative
+Write a villain's diary entry,creative
+Create a fictional legend about a mountain spirit,creative
+Write a funny poem about doing taxes,creative
+Invent three new ice cream flavors and describe them,creative
+Write a short fable with a moral about patience,creative
+Write the first scene of a romantic comedy,creative
+Write a congratulations card for a new baby,creative
+Summarize this article for me,summarization
+Give me a short summary of these notes,summarization
+TL;DR this thread please,summarization
+Condense this report into five bullet points,summarization
+What are the main points of this speech?,summarization
+Summarize the key findings in this abstract,summarization
+Recap this meeting transcript in a paragraph,summarization
+Summarize this product review in one sentence,summarization
+Give me an executive summary of this proposal,summarization
+Summarize the plot of The Great Gatsby,summarization
+Shorten this email while keeping the important details,summarization
+Summarize the user feedback from this survey,summarization
+Provide a brief overview of this chapter,summarization
+Summarize the changes described in this changelog,summarization
+Extract the key points from this lecture,summarization
+Summarize the history of the internet in a few sentences,summarization
+Summarize this legal document in plain language,summarization
+Make a quick summary of this news piece,summarization
+Summarize what this research paper concludes,summarization
+Give me the highlights of this quarterly update,summarization
+Should we use serverless functions or containers for our API?,reasoning
+Compare the benefits of SQL and NoSQL databases for analytics,reasoning
+What are the pros and cons of a monorepo?,reasoning
+Is it better to learn piano or guitar as an adult beginner?,reasoning
+Evaluate the risks of skipping code review for urgent fixes,reasoning
+Why might customers churn after the free trial ends?,reasoning
+Design a fault-tolerant job scheduler,reasoning
+What are the ethical concerns with predictive policing?,reasoning
+If some cats are black and all black things absorb heat does it follow that some cats absorb heat?,reasoning
+Should I take a higher-paying job with a longer commute?,reasoning
+Compare optimistic and pessimistic locking strategies,reasoning
+What strategy should we use to enter a crowded market?,reasoning
+Analyze the trade-offs between consistency and availability in our system,reasoning
+How should we decide which technical debt to pay down first?,reasoning
+Is it wise to invest an emergency fund in stocks?,reasoning
+What could cause our app's conversion rate to drop on mobile only?,reasoning
+Compare the long-term implications of leasing versus buying a car,reasoning
+Argue for and against universal basic income,reasoning
+Which architecture would you choose for a real-time multiplayer game and why?,reasoning
+Assess whether we should adopt a new framework mid-project,reasoning
+Read the entire repository and document every environment variable it uses,long-context
+Go through all the chapters of this novel and list every location mentioned,long-context
+Analyze this 400-page compliance manual for conflicting rules,long-context
+Here is the full log of the last week; find all errors and their causes,long-context
+Review all 50 resumes attached and rank the candidates,long-context
+Compare every clause across these three full contracts,long-context
+Read through the whole codebase and explain the data flow,long-context
+Go through this complete interview transcript collection and extract quotes about pricing,long-context
+Here is the entire documentation; find all broken examples,long-context
+Analyze the full transcript of the trial and summarize each witness's testimony,long-context
+Read every file in this project and list the external services it calls,long-context
+Track the evolution of this character across all seven books,long-context
+Review the complete commit log for the past year and identify who owns which modules,long-context
+Here is a 1000-message support chat export; group the issues by product area,long-context
+Read all of these research papers and build a comparison table,long-context
+Audit every page of this website export for accessibility problems,long-context
+Go through all the board meeting minutes from 2020 to 2025 and list major decisions,long-context
+Analyze the whole dataset dictionary and all related schema files,long-context
+Read the full text of this bill and identify every funding provision,long-context
+Review the entire configuration directory and find duplicate settings,long-context
+What is the capital of Italy?,simple-qa
+Who wrote The Odyssey?,simple-qa
+How many legs does a spider have?,simple-qa
+What does URL stand for?,simple-qa
+Hello!,simple-qa
+What is the largest desert in the world?,simple-qa
+When did World War II end?,simple-qa
+Which gas do plants absorb from the air?,simple-qa
+Who painted Starry Night?,simple-qa
+How many minutes are in a day?,simple-qa
+What is the capital of Kenya?,simple-qa
+What does SQL stand for?,simple-qa
+Who was Albert Einstein?,simple-qa
+What is the fastest land animal?,simple-qa
+Thank you!,simple-qa
+What planet is known as the red planet?,simple-qa
+How many strings does a standard guitar have?,simple-qa
+What is the primary language of Argentina?,simple-qa
+What is a megabyte?,simple-qa
+Which country has the largest population?,simple-qa

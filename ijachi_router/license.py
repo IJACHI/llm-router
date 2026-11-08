@@ -5,7 +5,10 @@ Handles Pro tier feature gating, license key validation, and paywall prompts.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
+import time
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
@@ -34,22 +37,74 @@ def get_license_key() -> str | None:
     return None
 
 
-def validate_license_key(key: str | None) -> tuple[bool, str]:
-    """Validate a Pro license key string.
+# Ed25519 public key of the license issuer. Keys are minted with scripts/license_admin.py,
+# which holds the matching private key; this package can verify keys but never create them.
+_PUBLIC_KEY_PEM = b"""-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAOx+Tmtg1PZCSRI2fSJJIoKwVpKXJqWckmpLopxQU12w=
+-----END PUBLIC KEY-----
+"""
 
-    Returns (is_valid, message).
-    """
+_PREFIX = "IJPRO-"
+
+
+def _b64e(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64d(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def encode_license(private_key, sub: str, plan: str = "pro", exp: int | None = None) -> str:
+    """Issuer-side: sign a license payload. ``private_key`` is an Ed25519PrivateKey."""
+    payload = {"v": 1, "sub": sub, "plan": plan, "iat": int(time.time()), "exp": exp}
+    body = _b64e(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    sig = _b64e(private_key.sign(body.encode("ascii")))
+    return f"{_PREFIX}{body}.{sig}"
+
+
+def decode_license(key: str, public_key_pem: bytes | None = None) -> dict:
+    """Verify signature and expiry; return the payload. Raises ValueError when invalid."""
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+    except ImportError as e:  # pragma: no cover - dependency is declared
+        raise ValueError("the 'cryptography' package is required to verify license keys") from e
+
+    if not key.startswith(_PREFIX) or "." not in key[len(_PREFIX):]:
+        raise ValueError("legacy or malformed key")
+    body, _, sig = key[len(_PREFIX):].partition(".")
+    pub = load_pem_public_key(public_key_pem or _PUBLIC_KEY_PEM)
+    try:
+        pub.verify(_b64d(sig), body.encode("ascii"))
+    except (InvalidSignature, ValueError, TypeError) as e:
+        raise ValueError("signature does not verify") from e
+    payload = json.loads(_b64d(body))
+    exp = payload.get("exp")
+    if exp is not None and time.time() > float(exp):
+        raise ValueError("license expired")
+    return payload
+
+
+def validate_license_key(key: str | None) -> tuple[bool, str]:
+    """Validate a Pro license key string. Returns (is_valid, message)."""
     if not key:
         return False, "No license key provided."
 
     key = key.strip()
-    if not key.startswith("IJPRO-"):
+    if not key.startswith(_PREFIX):
         return False, "Invalid key format. Pro license keys must start with 'IJPRO-'."
-
     if len(key) < 12:
         return False, "License key is too short or malformed."
-
-    return True, "Valid Pro License"
+    try:
+        payload = decode_license(key)
+    except ValueError as e:
+        if "legacy" in str(e):
+            return False, "This key uses the old unsigned format. Please request a new signed key."
+        if "expired" in str(e):
+            return False, "This license key has expired."
+        return False, "License key is not valid (signature check failed)."
+    return True, f"Valid Pro License ({payload.get('sub', 'unknown')})"
 
 
 def is_pro_active() -> bool:

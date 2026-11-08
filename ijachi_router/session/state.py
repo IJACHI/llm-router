@@ -84,6 +84,9 @@ class SessionState:
         self.recent_categories: list[str] = []
         self.consecutive_tool_failures: int = 0
         self.tokens_cached_estimate: int = 0
+        self.summary_event_count: int = 0      # committed events covered by rolling_summary
+        self.cache_read_tokens: int = 0
+        self.cache_saved_usd: float = 0.0
 
     def compute_file_hash(self, path: str | Path) -> str | None:
         p = Path(path)
@@ -103,7 +106,8 @@ class SessionState:
             path=path,
             sha256=h or "",
             last_seen_ts=time.time(),
-            modified_in_session=False,
+            # Re-reading a file we changed must not forget that we changed it.
+            modified_in_session=bool(self.working_set.get(path) and self.working_set[path].modified_in_session),
         )
 
     def record_file_write(self, path: str) -> None:
@@ -166,6 +170,9 @@ class SessionState:
             "recent_categories": self.recent_categories[-10:],
             "consecutive_tool_failures": self.consecutive_tool_failures,
             "tokens_cached_estimate": self.tokens_cached_estimate,
+            "summary_event_count": self.summary_event_count,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_saved_usd": self.cache_saved_usd,
         }
 
     @classmethod
@@ -194,4 +201,7 @@ class SessionState:
         state.recent_categories = list(data.get("recent_categories") or [])
         state.consecutive_tool_failures = int(data.get("consecutive_tool_failures", 0))
         state.tokens_cached_estimate = int(data.get("tokens_cached_estimate", 0))
+        state.summary_event_count = int(data.get("summary_event_count", 0))
+        state.cache_read_tokens = int(data.get("cache_read_tokens", 0))
+        state.cache_saved_usd = float(data.get("cache_saved_usd", 0.0))
         return state

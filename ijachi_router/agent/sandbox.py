@@ -25,12 +25,27 @@ _SENSITIVE_PATTERNS = [
 
 # Patterns for secret redaction in tool output (SEC-06)
 _KEY_PATTERNS = [
+    (r"(sk-ant-[a-zA-Z0-9_\-]{20,})", "[REDACTED:anthropic_key]"),
     (r"(sk-[a-zA-Z0-9_\-]{20,})", "[REDACTED:api_key]"),
-    (r"(ghp_[a-zA-Z0-9]{36})", "[REDACTED:github_token]"),
-    (r"(AKIA[0-9A-Z]{16})", "[REDACTED:aws_access_key]"),
-    (r"([A-Za-z0-9+/]{40})", "[REDACTED:aws_secret_key]"),
+    (r"(gh[pousr]_[a-zA-Z0-9]{36,})", "[REDACTED:github_token]"),
+    (r"(github_pat_[a-zA-Z0-9_]{40,})", "[REDACTED:github_token]"),
+    (r"(xox[abprs]-[a-zA-Z0-9\-]{10,})", "[REDACTED:slack_token]"),
+    (r"(AIza[0-9A-Za-z_\-]{35})", "[REDACTED:google_api_key]"),
+    (r"(hf_[a-zA-Z0-9]{30,})", "[REDACTED:hf_token]"),
+    (r"((?:AKIA|ASIA)[0-9A-Z]{16})", "[REDACTED:aws_access_key]"),
     (r"(eyJ[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]*)", "[REDACTED:jwt]"),
+    (r"(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----)", "[REDACTED:private_key]"),
 ]
+
+# Generic `NAME=value` / `"name": "value"` assignments whose name looks secret. Matching on the
+# name (not just the value shape) avoids redacting git SHAs, checksums and other 40-char hex.
+_ASSIGNMENT_PATTERN = re.compile(
+    r"""(?ix)
+    (\b[A-Z0-9_\-]*(?:SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|AUTH_?TOKEN|PRIVATE_?KEY|TOKEN)[A-Z0-9_\-]*\b
+     ["']?\s*[:=]\s*["']?)
+    ([^\s"']{8,})
+    """
+)
 
 
 def redact_secrets(text: str) -> str:
@@ -40,6 +55,10 @@ def redact_secrets(text: str) -> str:
     result = text
     for pattern, replacement in _KEY_PATTERNS:
         result = re.sub(pattern, replacement, result)
+    result = _ASSIGNMENT_PATTERN.sub(
+        lambda m: m.group(0) if m.group(2).startswith("[REDACTED") else f"{m.group(1)}[REDACTED:secret]",
+        result,
+    )
     return result
 
 
@@ -49,6 +68,8 @@ class WorkspaceSandbox:
     def __init__(self, workspace_dir: Path | str | None = None, extra_roots: list[Path | str] | None = None):
         self.primary_root = Path(workspace_dir or Path.cwd()).resolve()
         self.roots = [self.primary_root]
+        self.os_sandbox = False      # wrap commands with sandbox-exec / bwrap (see os_sandbox.py)
+        self.allow_network = False   # outbound network inside the OS sandbox
         if extra_roots:
             for r in extra_roots:
                 self.roots.append(Path(r).resolve())
@@ -93,6 +114,10 @@ class WorkspaceSandbox:
                 or k_upper.endswith("_KEY")
                 or k_upper.endswith("_TOKEN")
                 or k_upper.endswith("_SECRET")
+                or "PASSWORD" in k_upper
+                or "CREDENTIAL" in k_upper
+                or k_upper in ("HF_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "DATABASE_URL")
+                or k_upper.startswith("GOOGLE_APPLICATION")
                 or k_upper.startswith("AWS_")
                 or k_upper.startswith("AZURE_")
                 or "IJACHI" in k_upper
@@ -107,21 +132,55 @@ class WorkspaceSandbox:
         clean_env["PAGER"] = "cat"
         return clean_env
 
+    def command_env(self, work_dir: Path) -> dict[str, str]:
+        scrubbed_env = self.get_scrubbed_env()
+
+        # Ensure essential binary paths (Homebrew, ~/.local/bin, and workspace venvs) are available in PATH
+        current_path = scrubbed_env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        extra_paths: list[str] = []
+        for venv_name in ("venv", ".venv"):
+            v_bin = work_dir / venv_name / "bin"
+            if v_bin.is_dir():
+                extra_paths.append(str(v_bin))
+        for p in ("/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".local" / "bin")):
+            if p not in current_path and Path(p).is_dir():
+                extra_paths.append(p)
+        if extra_paths:
+            scrubbed_env["PATH"] = ":".join(extra_paths) + ":" + current_path
+        return scrubbed_env
+
+    def _argv(self, command: str, needs_network: bool = False):
+        """(argv_or_command, contained) — the OS-sandboxed argv when enabled and available."""
+        if self.os_sandbox:
+            from ijachi_router.agent.os_sandbox import wrap_command
+            argv = wrap_command(command, self.primary_root, allow_network=self.allow_network or needs_network)
+            if argv is not None:
+                return argv, True
+        return command, False
+
+    def start_background(self, command: str, needs_network: bool = False) -> str:
+        from ijachi_router.agent.background import SHELLS
+
+        target, _ = self._argv(command, needs_network)
+        return SHELLS.start(target, self.primary_root, self.command_env(self.primary_root), command)
+
     def run_sandboxed_command(
         self,
         command: str,
         cwd: Path | str | None = None,
         timeout_sec: int = 120,
         output_cap: int = 30_000,
+        needs_network: bool = False,
     ) -> tuple[int, str, str]:
         """Execute a command in scrubbed environment with timeout and output cap."""
         work_dir = Path(cwd).resolve() if cwd else self.primary_root
-        scrubbed_env = self.get_scrubbed_env()
+        scrubbed_env = self.command_env(work_dir)
+        target, _contained = self._argv(command, needs_network)
 
         try:
             proc = subprocess.run(
-                command,
-                shell=True,
+                target,
+                shell=isinstance(target, str),
                 cwd=work_dir,
                 env=scrubbed_env,
                 capture_output=True,

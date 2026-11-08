@@ -1,0 +1,6 @@
+id: py-type-error
+category: debugging
+difficulty: easy
+prompt: 'Running python3 report.py crashes with a TypeError. Fix it so it prints ''Total
+  items: 3''.'
+check: 'test "$(python3 report.py)" = ''Total items: 3'''

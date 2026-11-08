@@ -1,0 +1,7 @@
+id: py-cli-flag
+category: code
+difficulty: medium
+prompt: Add a --shout flag to greet.py that prints the greeting in upper case. Without
+  the flag behaviour must not change.
+check: test "$(python3 greet.py Ada)" = 'Hello, Ada!' && test "$(python3 greet.py
+  Ada --shout)" = 'HELLO, ADA!'

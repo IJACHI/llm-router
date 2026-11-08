@@ -1,0 +1,5 @@
+id: py-implement-slugify
+category: code
+difficulty: easy
+prompt: Implement slugify() in text_utils.py so the tests in test_text_utils.py pass.
+check: python3 -m unittest discover -q -s . -p 'test_*.py'

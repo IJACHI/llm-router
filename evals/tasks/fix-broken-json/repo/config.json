@@ -1,0 +1,6 @@
+{
+  "name": "svc",
+  "port": 8080,
+  "debug": false,
+  "tags": ["a", "b",],
+}

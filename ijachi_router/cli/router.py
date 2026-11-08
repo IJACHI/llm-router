@@ -139,16 +139,67 @@ def update_cmd():
 
 @main.command(name="train")
 def train_cmd():
-    """Retrain prompt classifier in non-executable safe JSON format."""
+    """Retrain the prompt classifier (safe JSON weights) and report its accuracy."""
     from ijachi_router.routing.classifier import retrain_safe_model
-    click.echo("Training safe classifier from training data...")
+    click.echo("Training classifier from data/train_data.csv ...")
     try:
-        retrain_safe_model()
-        click.echo(click.style("✓ Classifier trained with verified checksum.", fg="green"))
-    except Exception as e:
-        from ijachi_router.classifier import retrain
-        retrain()
-        click.echo(click.style("✓ Classifier trained.", fg="green"))
+        meta = retrain_safe_model()
+    except ImportError:
+        raise click.ClickException("scikit-learn is required for training: pip install scikit-learn")
+    msg = f"✓ Trained on {meta['n_examples']} examples · cross-validated accuracy {meta['cv_accuracy']:.1%}"
+    if "eval_accuracy" in meta:
+        msg += f" · held-out accuracy {meta['eval_accuracy']:.1%}"
+    click.echo(click.style(msg, fg="green"))
+
+
+@main.command(name="eval")
+@click.option("--mode", "modes", default="efficient", help="Comma-separated routing modes to compare (efficient,cheapest,best,best-fit).")
+@click.option("--model", default=None, help="Pin one model for every task (e.g. claude-sonnet-5-5).")
+@click.option("--local-only", is_flag=True, help="Only use local (Ollama) models — free.")
+@click.option("--allow-providers", default=None, help="Comma-separated providers to allow.")
+@click.option("--task", "only", multiple=True, help="Only run tasks whose id contains this (repeatable).")
+@click.option("--repeat", default=1, type=int, help="Runs per task and mode (models are not deterministic).")
+@click.option("--max-turns", default=30, type=int)
+@click.option("--no-sandbox", is_flag=True, help="Run commands without the OS sandbox.")
+@click.option("--no-record", is_flag=True, help="Do not feed results into learned routing.")
+@click.option("--tasks-dir", default=None, type=click.Path(exists=True, file_okay=False))
+def eval_cmd(modes, model, local_only, allow_providers, only, repeat, max_turns, no_sandbox, no_record, tasks_dir):
+    """Measure the agent: solve rate, cost per solved task and time on the evaluation suite."""
+    from pathlib import Path as _P
+
+    from ijachi_router.evals import TASKS_DIR, load_tasks, run_task, save_results, summarize
+
+    tasks = load_tasks(_P(tasks_dir) if tasks_dir else TASKS_DIR, list(only) or None)
+    if not tasks:
+        raise click.ClickException("No tasks found.")
+    allow = {p.strip() for p in allow_providers.split(",")} if allow_providers else None
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()]
+    if not local_only and not click.confirm(
+        f"Run {len(tasks) * len(mode_list) * repeat} agent tasks? This calls your configured providers and can cost money.",
+        default=True,
+    ):
+        return
+    results = []
+    for mode in mode_list:
+        for t in tasks:
+            for _ in range(repeat):
+                r = run_task(t, mode, local_only=local_only, model=model, allow_providers=allow,
+                             max_turns=max_turns, sandbox=not no_sandbox, record=not no_record)
+                results.append(r)
+                mark = "✓" if r.solved else ("·" if not r.valid else "✗")
+                click.echo(f"  {mark} [{mode}] {t.id:<26} {r.seconds:>6.1f}s  ${r.cost_usd:.4f}  {r.model or '-':<32} {'' if r.solved else r.reason[:70]}")
+    summary = summarize(results)
+    click.echo("")
+    for mode, s in summary.items():
+        cps = f"${s['cost_per_solved_usd']:.4f}" if s["cost_per_solved_usd"] is not None else "n/a"
+        click.echo(click.style(
+            f"{mode:<10} solved {s['solved']}/{s['tasks']} ({s['solve_rate']:.0%})  total ${s['total_cost_usd']:.4f}  "
+            f"per solved {cps}  avg {s['avg_seconds']}s  models: {', '.join(s['models'])}", fg="green"))
+    invalid = [r.task for r in results if not r.valid]
+    if invalid:
+        click.echo(click.style(f"Invalid tasks (already passing before the agent ran): {sorted(set(invalid))}", fg="yellow"))
+    path = save_results(results, {"modes": mode_list, "model": model, "local_only": local_only, "repeat": repeat})
+    click.echo(f"Results saved to {path}")
 
 
 @main.command(name="doctor")
@@ -183,7 +234,8 @@ def sessions_prune_cmd(days):
 @click.option("--host", default="127.0.0.1", help="Host address to bind.")
 @click.option("--port", default=8000, type=int, help="Port to bind.")
 @click.option("--license-key", default=None, help="Pro license key.")
-def serve_cmd(host, port, license_key):
+@click.option("--token", default=None, help="API access token clients must send (default: $IJACHI_SERVER_TOKEN or a random one).")
+def serve_cmd(host, port, license_key, token):
     """[PRO] Launch REST API gateway & dashboard."""
     from ijachi_router.license import set_license_key
     from ijachi_router.server import start_server
@@ -191,7 +243,7 @@ def serve_cmd(host, port, license_key):
     if license_key:
         set_license_key(license_key)
 
-    server = start_server(host=host, port=port)
+    server = start_server(host=host, port=port, token=token)
     if server:
         try:
             server.serve_forever()

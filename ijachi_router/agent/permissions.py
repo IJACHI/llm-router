@@ -20,6 +20,9 @@ from typing import Any
 
 from rich.console import Console
 
+from ijachi_router.agent.rules import any_match, suggest_rule
+from ijachi_router.settings import add_permission_rule
+
 console = Console()
 
 # Safe read-only commands that run without asking in ask mode
@@ -101,6 +104,61 @@ def normalize_permission_mode(mode: str | None) -> str:
         return "manual"
     if m in ("auto-safe", "ci"):
         return "auto-safe"
+    if m in ("plan", "read-only", "readonly"):
+        return "plan"
+    # Unknown values fall back to the safest interactive mode.
+    return "manual"
+
+
+# Shell constructs that can write files or run nested commands. A command containing any of
+# these is never treated as read-only, even if it starts with a "safe" command like `echo`.
+_SHELL_WRITE_OR_SUBST = re.compile(r"(?<![0-9&])>|>>|\$\(|`|<\(|>\(|\btee\b")
+
+
+def _split_shell_segments(command: str) -> list[str]:
+    """Split a compound shell command on &&, ||, ;, | and newlines (quote-aware)."""
+    segments: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            buf.append(ch)
+            if ch == "\\" and quote == '"' and i + 1 < len(command):
+                buf.append(command[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        two = command[i:i + 2]
+        if two in ("&&", "||"):
+            segments.append("".join(buf))
+            buf = []
+            i += 2
+            continue
+        if ch in (";", "|", "\n", "&"):
+            segments.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    segments.append("".join(buf))
+    return [s.strip() for s in segments if s.strip()]
+
+
+def _is_safe_segment(segment: str) -> bool:
+    return segment in _SAFE_COMMANDS or any(segment.startswith(f"{sc} ") for sc in _SAFE_COMMANDS)
+
+
 def _sanitize_terminal_input() -> None:
     """Flush any pre-buffered keystrokes typed during network delay and restore terminal canonical mode."""
     if not sys.stdin.isatty():
@@ -127,8 +185,18 @@ class PermissionManager:
         allowed_patterns: list[str] | None = None,
         denied_patterns: list[str] | None = None,
         is_tty: bool = True,
+        workspace_dir: Path | str | None = None,
+        rules: dict[str, list[str]] | None = None,
     ):
         self.mode = normalize_permission_mode(mode) if mode != "auto-safe" else "auto-safe"
+        if rules is None and workspace_dir is not None:
+            from ijachi_router.settings import load_settings
+            rules = load_settings(workspace_dir).get("permissions", {})
+        rules = rules or {}
+        self.allow_rules: list[str] = list(rules.get("allow", []))
+        self.deny_rules: list[str] = list(rules.get("deny", []))
+        self.ask_rules: list[str] = list(rules.get("ask", []))
+        self.session_rules: set[str] = set()
         self.session_allowed_patterns: set[str] = set(allowed_patterns or [])
         self.session_denied_patterns: set[str] = set(denied_patterns or [])
         self.r1_session_approved: bool = False
@@ -136,25 +204,30 @@ class PermissionManager:
 
     def classify_tool(self, tool_name: str, args: dict[str, Any], workspace_dir: Path) -> str:
         """Classify tool call into R0..R4 risk tiers."""
-        if tool_name in ("Read", "read_file", "Glob", "glob", "Grep", "grep_search", "ListDir", "list_dir", "Plan", "plan"):
+        if tool_name in ("Read", "read_file", "Glob", "glob", "Grep", "grep_search", "ListDir", "list_dir", "Plan", "plan",
+                         "RepoMap", "Explore", "BashOutput"):
             path = args.get("path") or args.get("search_path") or "."
             p = (workspace_dir / path).resolve()
             # If path escapes workspace or touches sensitive files, it is R4
-            if not str(p).startswith(str(workspace_dir.resolve())):
+            if not p.is_relative_to(workspace_dir.resolve()):
                 return "R4"
             if any(part.startswith(".env") or part in ("id_rsa", "id_ed25519", "credentials") for part in p.parts):
                 return "R4"
             return "R0"
 
-        if tool_name in ("Edit", "edit_file", "Write", "write_file"):
+        if tool_name in ("Edit", "edit_file", "Write", "write_file", "MultiEdit"):
             path = args.get("path", "")
             p = (workspace_dir / path).resolve()
-            if not str(p).startswith(str(workspace_dir.resolve())):
+            if not p.is_relative_to(workspace_dir.resolve()):
                 return "R4"
             if ".git" in p.parts:
                 return "R4"  # .git is write protected
             return "R1"
 
+        if tool_name == "KillShell":
+            return "R2"
+        if tool_name.startswith("mcp__"):
+            return "R3"  # external side effects: always ask unless a rule allows it
         if tool_name in ("Bash", "run_command"):
             cmd = args.get("command", "").strip()
             # Check never allow & destructive patterns
@@ -164,8 +237,10 @@ class PermissionManager:
             for pattern in _ALWAYS_ASK_PATTERNS:
                 if re.search(pattern, cmd):
                     return "R4"
-            # Check safe list
-            if cmd in _SAFE_COMMANDS or any(cmd.startswith(f"{sc} ") for sc in _SAFE_COMMANDS):
+            # Read-only only if EVERY segment of a compound command is on the safe list and
+            # nothing redirects output or substitutes a nested command (SEC-02).
+            segments = _split_shell_segments(cmd)
+            if segments and not _SHELL_WRITE_OR_SUBST.search(cmd) and all(_is_safe_segment(s) for s in segments):
                 return "R0"
             return "R2"
 
@@ -183,8 +258,9 @@ class PermissionManager:
             if re.search(pat, cmd_clean):
                 return False, f"Dangerous command blocked by safety policy: matching '{pat}'"
 
-        # Split compound operators (&&, ||, ;, |, backticks, $())
-        subcommands = re.split(r"\s*(?:&&|\|\||;|\|)\s*", cmd_clean)
+        # Split compound operators (&&, ||, ;, |) and inspect nested $() / backtick bodies too
+        subcommands = _split_shell_segments(cmd_clean)
+        subcommands += re.findall(r"\$\(([^)]*)\)", cmd_clean) + re.findall(r"`([^`]*)`", cmd_clean)
         for sub in subcommands:
             sub = sub.strip()
             if not sub:
@@ -239,60 +315,62 @@ class PermissionManager:
             if not safe:
                 return PermissionResult(allowed=False, risk_class="R4", reason=reason, exit_code=5)
 
-        # R0: Always allowed
-        if risk == "R0":
-            return PermissionResult(allowed=True, risk_class=risk)
+        ws = Path(workspace_dir)
 
-        # Check explicit deny patterns
+        # Configured rules (settings files + this session). Deny wins, then ask, then allow.
+        hit = any_match(self.deny_rules, tool_name, args, ws)
+        if hit:
+            return PermissionResult(allowed=False, risk_class=risk, reason=f"Denied by rule '{hit}'.", exit_code=5)
+        force_ask = any_match(self.ask_rules, tool_name, args, ws) is not None
+        if not force_ask:
+            hit = any_match(self.allow_rules + sorted(self.session_rules), tool_name, args, ws)
+            if hit:
+                return PermissionResult(allowed=True, risk_class=risk, reason=f"Allowed by rule '{hit}'.")
+
+        # Legacy substring patterns (kept for API compatibility).
         action_repr = f"{tool_name}({args})"
         for d in self.session_denied_patterns:
             if d in action_repr:
-                return PermissionResult(
-                    allowed=False,
-                    risk_class=risk,
-                    reason=f"Action explicitly denied by pattern '{d}'",
-                    exit_code=5,
-                )
+                return PermissionResult(allowed=False, risk_class=risk, reason=f"Action explicitly denied by pattern '{d}'", exit_code=5)
+        if not force_ask:
+            for a in self.session_allowed_patterns:
+                if a in action_repr or a == tool_name:
+                    return PermissionResult(allowed=True, risk_class=risk)
 
-        # Check explicit session allow patterns
-        for a in self.session_allowed_patterns:
-            if a in action_repr or a == tool_name:
-                return PermissionResult(allowed=True, risk_class=risk)
-
-        # Fully automatic mode: R0, R1, R2 auto-approved (no need for user approvals for safe actions)
-        if self.mode == "auto":
-            if risk in ("R0", "R1", "R2"):
-                return PermissionResult(allowed=True, risk_class=risk)
-
-        # Semi-automatic mode: R1 auto-approved inside workspace, R2/R3 prompt user
-        if self.mode in ("semi-auto", "accept-edits") and risk == "R1":
+        # R0: always allowed (unless a rule says to ask)
+        if risk == "R0" and not force_ask:
             return PermissionResult(allowed=True, risk_class=risk)
 
-        # Auto-safe mode (CI): If not explicitly allowed, deny with exit code 5 (SEC-08, AT-13)
+        if not force_ask:
+            # Fully automatic: read-only web lookups run without asking too.
+            if self.mode == "auto" and tool_name in ("WebFetch", "WebSearch"):
+                return PermissionResult(allowed=True, risk_class=risk)
+            # Fully automatic: workspace edits and ordinary commands run without asking.
+            if self.mode == "auto" and risk in ("R1", "R2"):
+                return PermissionResult(allowed=True, risk_class=risk)
+            # Semi-automatic: workspace edits run without asking; commands still ask.
+            if self.mode in ("semi-auto", "accept-edits") and risk == "R1":
+                return PermissionResult(allowed=True, risk_class=risk)
+            if risk == "R1" and self.r1_session_approved:
+                return PermissionResult(allowed=True, risk_class=risk)
+
+        # CI: never prompt; anything not explicitly allowed is denied (SEC-08, AT-13).
         if self.mode == "auto-safe":
             return PermissionResult(
-                allowed=False,
-                risk_class=risk,
+                allowed=False, risk_class=risk,
                 reason="auto-safe (CI) mode: unapproved actions are denied without interactive prompt",
                 exit_code=5,
             )
-
-        # R1 session approval check (ask once per session)
-        if risk == "R1" and self.r1_session_approved:
-            return PermissionResult(allowed=True, risk_class=risk)
-
-        # Non-interactive without TTY: cannot prompt, must deny
         if not self.is_tty:
             return PermissionResult(
-                allowed=False,
-                risk_class=risk,
+                allowed=False, risk_class=risk,
                 reason="Non-interactive session: cannot prompt for permission. Action denied.",
                 exit_code=5,
             )
 
-        # Interactive approval prompt (UX-04, Document 5.4, 6.3)
+        suggestion = suggest_rule(tool_name, args, ws)
         while True:
-            choice = self._prompt_approval(tool_name, args, risk, model_name, why_needed)
+            choice = self._prompt_approval(tool_name, args, risk, model_name, why_needed, suggestion)
             if choice in ("e", "explain", "why", "?"):
                 self._render_explanation(tool_name, args, risk, model_name, why_needed)
                 continue
@@ -300,28 +378,22 @@ class PermissionManager:
 
         if choice in ("y", "yes", "yep", "ok", "allow", "1", "true"):
             return PermissionResult(allowed=True, risk_class=risk)
-        elif choice in ("s", "session"):
+        if choice in ("s", "session"):
             if risk == "R1":
                 self.r1_session_approved = True
-            self.session_allowed_patterns.add(action_repr)
-            return PermissionResult(allowed=True, risk_class=risk)
-        elif choice in ("a", "always"):
-            self.session_allowed_patterns.add(action_repr)
-            return PermissionResult(allowed=True, risk_class=risk)
-        elif choice in ("d", "feedback"):
-            return PermissionResult(
-                allowed=False,
-                risk_class=risk,
-                reason="User denied action with feedback.",
-                exit_code=5,
-            )
-        else:  # 'n', 'no', 'deny', or default Enter
-            return PermissionResult(
-                allowed=False,
-                risk_class=risk,
-                reason="User denied action.",
-                exit_code=5,
-            )
+            self.session_rules.add(suggestion)
+            return PermissionResult(allowed=True, risk_class=risk, reason=f"Allowed for this session: {suggestion}")
+        if choice in ("a", "always"):
+            self.session_rules.add(suggestion)
+            try:
+                path = add_permission_rule(ws, suggestion, "allow", scope="local")
+                note = f" (saved to {path})"
+            except OSError:
+                note = ""
+            return PermissionResult(allowed=True, risk_class=risk, reason=f"Always allowed: {suggestion}{note}")
+        if choice in ("d", "feedback"):
+            return PermissionResult(allowed=False, risk_class=risk, reason="User denied action with feedback.", exit_code=5)
+        return PermissionResult(allowed=False, risk_class=risk, reason="User denied action.", exit_code=5)
 
     def _render_explanation(
         self,
@@ -360,6 +432,7 @@ class PermissionManager:
         risk_class: str,
         model_name: str,
         why: str,
+        suggestion: str = "",
     ) -> str:
         """Render interactive approval prompt defaulting to deny."""
         # 1. Stop any background status spinner so it cannot overwrite prompt
@@ -378,7 +451,8 @@ class PermissionManager:
         if why:
             console.print(f"  [dim]Reason:[/dim]    {why}")
 
-        prompt_str = "Allow? [y] once, [s] this session, [a] always, [n] no (default), [e] explain: "
+        rule = suggestion or tool_name
+        prompt_str = f"Allow? [y] once · [s] {rule} this session · [a] always {rule} · [n] no (default) · [e] explain: "
         try:
             if sys.stdin.isatty():
                 try:

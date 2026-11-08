@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 _USER_MEMORY_FILE = Path.home() / ".ijachi-llmr" / "IJACHI.md"
+_MEMORY_FILENAMES = ("IJACHI.md", "AGENTS.md", "CLAUDE.md")
 
 
 def find_repo_root(start_dir: Path | None = None) -> Path:
@@ -42,8 +43,8 @@ def load_project_memory(cwd: Path | str | None = None) -> str:
         except Exception:
             pass
 
-    # 2. Repo root level
-    root_mem = repo_root / "IJACHI.md"
+    # 2. Repo root level (IJACHI.md, else AGENTS.md / CLAUDE.md written for other agents)
+    root_mem = next((repo_root / n for n in _MEMORY_FILENAMES if (repo_root / n).exists()), repo_root / "IJACHI.md")
     if root_mem.exists():
         try:
             content = root_mem.read_text(encoding="utf-8").strip()
@@ -54,7 +55,7 @@ def load_project_memory(cwd: Path | str | None = None) -> str:
 
     # 3. Subdirectory level (if distinct from root)
     if current_dir != repo_root:
-        sub_mem = current_dir / "IJACHI.md"
+        sub_mem = next((current_dir / n for n in _MEMORY_FILENAMES if (current_dir / n).exists()), current_dir / "IJACHI.md")
         if sub_mem.exists():
             try:
                 content = sub_mem.read_text(encoding="utf-8").strip()
@@ -121,5 +122,21 @@ def init_project_memory(target_dir: Path | str | None = None, auto: bool = False
 - Never write destructive file commands or push without approval.
 - Ensure all automated unit and integration tests pass before completing tasks.
 """
+    mem_path.write_text(content, encoding="utf-8")
+    return mem_path
+
+
+def append_project_note(note: str, workspace_dir: Path | str | None = None) -> Path:
+    """Append a `#note` to the repository's IJACHI.md under a Notes section (creating it if needed)."""
+    root = find_repo_root(Path(workspace_dir or Path.cwd()))
+    mem_path = root / "IJACHI.md"
+    if not mem_path.exists():
+        init_project_memory(root)
+    content = mem_path.read_text(encoding="utf-8")
+    if "\n## Notes" not in content:
+        content = content.rstrip("\n") + "\n\n## Notes\n"
+    elif not content.endswith("\n"):
+        content += "\n"
+    content += f"- {note.strip()}\n"
     mem_path.write_text(content, encoding="utf-8")
     return mem_path

@@ -1,0 +1,6 @@
+id: fix-broken-json
+category: debugging
+difficulty: easy
+prompt: config.json is invalid JSON and the app fails to start. Fix the file without
+  changing any values.
+check: python3 -c "import json;d=json.load(open('config.json'));assert d=={'name':'svc','port':8080,'debug':False,'tags':['a','b']}"

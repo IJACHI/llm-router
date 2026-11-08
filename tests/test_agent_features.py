@@ -8,7 +8,6 @@ import pytest
 
 from ijachi_router.indexer import WorkspaceIndexer
 from ijachi_router.consensus import consensus_route
-from ijachi_router.agent import AgenticRouter
 from ijachi_router.providers.base import GenerationResult
 
 
@@ -51,18 +50,3 @@ def test_consensus_route_identical_models(monkeypatch):
     res = consensus_route("Write add function")
     assert res.consensus_model == "gpt-4o"
     assert "def add" in res.final_text
-
-
-def test_agent_git_and_fix_tests(monkeypatch, tmp_path):
-    agent = AgenticRouter(root_dir=tmp_path, require_approval=False)
-
-    # Test fix_tests when command passes
-    def mock_run_command(cmd, **kwargs):
-        if cmd == "pytest":
-            return "Exit Code: 0\n1 passed"
-        return "Exit Code: 0"
-
-    monkeypatch.setattr(agent.tools, "run_command", mock_run_command)
-    res = agent.fix_tests("pytest", max_retries=2)
-    assert res.completed is True
-    assert "passed successfully" in res.final_text

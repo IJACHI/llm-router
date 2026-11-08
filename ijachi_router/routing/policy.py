@@ -89,6 +89,11 @@ def filter_candidates(
             filtered_reasons[full_id] = f"below complexity adequacy floor (tier {quality_tier} < 2 for complexity {need.complexity:.2f})"
             continue
 
+        # 4c. Vision: attached images need a model that can see them.
+        if getattr(need, "requires_vision", False) and "vision" not in m.tags:
+            filtered_reasons[full_id] = "cannot read attached images (no 'vision' tag)"
+            continue
+
         # 5. Category match
         if not is_category_match(m.tags, need.category):
             filtered_reasons[full_id] = f"does not match category '{need.category}'"

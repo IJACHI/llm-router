@@ -1,0 +1,6 @@
+id: py-missing-key
+category: debugging
+difficulty: easy
+prompt: load_settings crashes when 'timeout' is missing from the config. It should
+  default to 30. Fix it.
+check: python3 -m unittest discover -q -s . -p 'test_*.py'

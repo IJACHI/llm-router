@@ -1,0 +1,7 @@
+id: py-bug-in-large-file
+category: debugging
+difficulty: medium
+prompt: apply_tax returns wrong values (tax of 10% on 200 should give 220). Fix it.
+  The module is large; find the function first.
+check: python3 -c "from core import apply_tax;assert apply_tax(200,0.10)==220.0, apply_tax(200,0.10);assert
+  apply_tax(50,0)==50"

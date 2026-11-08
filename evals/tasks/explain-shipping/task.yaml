@@ -1,0 +1,9 @@
+id: explain-shipping
+category: reasoning
+difficulty: easy
+prompt: 'Without changing any files: which function computes shipping cost, and what
+  is the per-kg rate for heavy parcels?'
+answer_contains:
+- shipping_cost
+- '12.5'
+forbid_changes: true

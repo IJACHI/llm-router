@@ -31,6 +31,7 @@ dependencies = [
     "click>=8.1",
     "rich>=13.0",
     "prompt_toolkit>=3.0",
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
@@ -63,7 +64,7 @@ include = ["ijachi_router*"]
 py-modules = ["cli"]
 
 [tool.setuptools.package-data]
-"ijachi_router" = ["../models.yaml", "../data/train_data.csv"]
+"ijachi_router" = ["../models.yaml", "../data/train_data.csv", "../data/eval_prompts.csv", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

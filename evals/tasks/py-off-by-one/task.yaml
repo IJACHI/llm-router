@@ -1,0 +1,5 @@
+id: py-off-by-one
+category: debugging
+difficulty: easy
+prompt: The pagination tests fail. Find and fix the bug in pagination.py.
+check: python3 -m unittest discover -q -s . -p 'test_*.py'

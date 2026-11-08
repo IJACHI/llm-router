@@ -11,6 +11,7 @@ import datetime
 import difflib
 import json
 import shutil
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -63,32 +64,11 @@ class CheckpointManager:
 
     def create_checkpoint(self, name: str, files: list[str | Path]) -> str:
         """Snapshot current state of target files before modifying them."""
-        cp_id = f"cp_{len(self.checkpoint_stack) + 1}_{int(datetime.datetime.now().timestamp())}"
+        cp_id = f"cp_{len(self.checkpoint_stack) + 1}_{int(datetime.datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}"
         cp_dir = self.checkpoints_dir / cp_id
         cp_dir.mkdir(parents=True, exist_ok=True)
 
-        snapshots: list[dict[str, Any]] = []
-        for file_path in files:
-            p = Path(file_path).resolve()
-            rel_str = str(file_path)
-            if p.exists() and p.is_file():
-                try:
-                    content = p.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    content = None
-                snapshots.append({
-                    "path": str(p),
-                    "rel_path": rel_str,
-                    "exists": True,
-                    "content": content,
-                })
-            else:
-                snapshots.append({
-                    "path": str(p),
-                    "rel_path": rel_str,
-                    "exists": False,
-                    "content": None,
-                })
+        snapshots = [self._snapshot(f) for f in files]
 
         entry = {
             "id": cp_id,
@@ -99,6 +79,30 @@ class CheckpointManager:
         self.checkpoint_stack.append(entry)
         self._save_index()
         return cp_id
+
+    @staticmethod
+    def _snapshot(file_path: str | Path) -> dict[str, Any]:
+        p = Path(file_path).resolve()
+        if p.exists() and p.is_file():
+            try:
+                content = p.read_text(encoding="utf-8")
+            except Exception:
+                content = None  # binary/undecodable: cannot be restored faithfully
+            return {"path": str(p), "rel_path": str(file_path), "exists": True, "content": content}
+        return {"path": str(p), "rel_path": str(file_path), "exists": False, "content": None}
+
+    def add_to_checkpoint(self, checkpoint_id: str, files: list[str | Path]) -> None:
+        """Add pre-modification snapshots of *files* to an existing checkpoint (change set)."""
+        cp = next((c for c in self.checkpoint_stack if c["id"] == checkpoint_id), None)
+        if cp is None:
+            return
+        known = {s["path"] for s in cp["snapshots"]}
+        for f in files:
+            snap = self._snapshot(f)
+            if snap["path"] not in known:
+                cp["snapshots"].append(snap)
+                known.add(snap["path"])
+        self._save_index()
 
     def undo_last(self) -> tuple[bool, str]:
         """Restore files to the state captured in the most recent checkpoint."""
@@ -122,8 +126,30 @@ class CheckpointManager:
                     target_path.unlink()
                     restored.append(f"Removed created file '{snap.get('rel_path', target_path.name)}'")
 
+        skipped = [s for s in last_cp.get("snapshots", []) if s.get("exists") and s.get("content") is None]
+        for snap in skipped:
+            restored.append(f"Could not restore non-text file '{snap.get('rel_path')}'")
         msg = f"✓ Undid checkpoint '{last_cp.get('name', last_cp['id'])}':\n" + "\n".join(restored)
         return True, msg
+
+    def session_diff(self) -> str:
+        """Unified diff of every file changed in this session vs. its earliest snapshot."""
+        if not self.checkpoint_stack:
+            return "No checkpoints recorded."
+        earliest: dict[str, dict[str, Any]] = {}
+        for cp in self.checkpoint_stack:
+            for snap in cp.get("snapshots", []):
+                earliest.setdefault(snap["path"], snap)
+        diffs = []
+        for path, snap in earliest.items():
+            target = Path(path)
+            old = (snap.get("content") or "").splitlines(keepends=True)
+            new = target.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if target.exists() else []
+            rel = snap.get("rel_path", target.name)
+            d = "".join(difflib.unified_diff(old, new, fromfile=f"a/{rel}", tofile=f"b/{rel}"))
+            if d:
+                diffs.append(d)
+        return "\n".join(diffs) if diffs else "No changes in this session."
 
     def diff_from_checkpoint(self, checkpoint_id: str | None = None) -> str:
         """Compute unified diff between current files and a checkpoint."""

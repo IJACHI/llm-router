@@ -1,0 +1,37 @@
+{
+  "name": "ijachi-code",
+  "displayName": "ijachi-code",
+  "description": "Cost-aware multi-model coding agent in your editor (runs the ijachi-code CLI).",
+  "version": "0.1.0",
+  "publisher": "ijachi",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Programming Languages"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "ijachi.open", "title": "ijachi: Open Agent" },
+      { "command": "ijachi.askSelection", "title": "ijachi: Ask About Selection" },
+      { "command": "ijachi.fixProblems", "title": "ijachi: Fix Problems in This File" },
+      { "command": "ijachi.newTask", "title": "ijachi: New Task in Isolated Worktree" }
+    ],
+    "keybindings": [
+      { "command": "ijachi.open", "key": "ctrl+alt+i", "mac": "cmd+alt+i" },
+      { "command": "ijachi.askSelection", "key": "ctrl+alt+k", "mac": "cmd+alt+k", "when": "editorHasSelection" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "ijachi.askSelection", "when": "editorHasSelection", "group": "ijachi" },
+        { "command": "ijachi.fixProblems", "group": "ijachi" }
+      ]
+    },
+    "configuration": {
+      "title": "ijachi-code",
+      "properties": {
+        "ijachi.command": { "type": "string", "default": "ijachi-code", "description": "Path to the ijachi-code executable." },
+        "ijachi.extraArgs": { "type": "string", "default": "", "description": "Extra CLI arguments, e.g. --mode cheapest --autonomy semi-auto" }
+      }
+    }
+  }
+}

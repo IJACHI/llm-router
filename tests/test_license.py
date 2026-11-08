@@ -29,13 +29,42 @@ def test_validate_invalid_keys():
     assert "too short" in msg
 
 
-def test_validate_valid_key():
-    valid, msg = validate_license_key("IJPRO-DEMO-TEST-KEY-2026")
+@pytest.fixture
+def issuer(monkeypatch):
+    """A throwaway signing keypair whose public half the package trusts during the test."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+    monkeypatch.setattr("ijachi_router.license._PUBLIC_KEY_PEM", pem)
+    return key
+
+
+def test_validate_valid_key(issuer):
+    from ijachi_router.license import encode_license
+    valid, msg = validate_license_key(encode_license(issuer, sub="buyer@example.com"))
     assert valid
-    assert "Valid Pro License" in msg
+    assert "Valid Pro License" in msg and "buyer@example.com" in msg
 
 
-def test_license_set_and_remove(tmp_path, monkeypatch):
+def test_forged_tampered_expired_and_legacy_keys_are_rejected(issuer):
+    import time
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from ijachi_router.license import encode_license
+
+    assert not validate_license_key("IJPRO-DEMO-TEST-KEY-2026")[0]  # old unsigned format
+    forged = encode_license(Ed25519PrivateKey.generate(), sub="attacker")
+    assert not validate_license_key(forged)[0]
+    good = encode_license(issuer, sub="buyer")
+    body, sig = good[len("IJPRO-"):].split(".")
+    assert not validate_license_key("IJPRO-" + body[:-2] + "AA." + sig)[0]
+    ok, msg = validate_license_key(encode_license(issuer, sub="buyer", exp=int(time.time()) - 10))
+    assert not ok and "expired" in msg
+
+
+def test_license_set_and_remove(tmp_path, monkeypatch, issuer):
+    from ijachi_router.license import encode_license
     test_key_file = tmp_path / "license.key"
     monkeypatch.setattr("ijachi_router.license._LICENSE_FILE", test_key_file)
     monkeypatch.setattr("ijachi_router.license._CACHE_DIR", tmp_path)
@@ -43,7 +72,8 @@ def test_license_set_and_remove(tmp_path, monkeypatch):
 
     assert not is_pro_active()
 
-    ok, msg = set_license_key("IJPRO-TEST-123456789")
+    assert not set_license_key("IJPRO-TEST-123456789")[0]
+    ok, msg = set_license_key(encode_license(issuer, sub="buyer"))
     assert ok
     assert test_key_file.exists()
     assert is_pro_active()

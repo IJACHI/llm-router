@@ -19,16 +19,16 @@ Solve this integral: ∫ x² e^x dx,math
 What is the derivative of ln(sin(x))?,math
 How many prime numbers exist below 1000?,math
 Simplify the expression (a+b)³ − 3ab(a+b),math
-Solve the system of equations: 2x+3y=7, x−y=1,math
+"Solve the system of equations: 2x+3y=7, x−y=1",math
 What is Bayes' theorem and when should I use it?,math
 Explain the Central Limit Theorem with an example,math
-Calculate the eigenvalues of [[1,2],[3,4]],math
+"Calculate the eigenvalues of [[1,2],[3,4]]",math
 What is the P vs NP problem?,math
 Find the area under the curve y=x² from 0 to 3,math
 Derive the quadratic formula from ax²+bx+c=0,math
 Show that 1+2+3+…+n = n(n+1)/2,math
 What is the Monty Hall problem and what's the correct answer?,math
-Solve: if 3^x = 81, what is x?,math
+"Solve: if 3^x = 81, what is x?",math
 Write a short poem about autumn leaves,creative
 Tell me a story about a lighthouse keeper who discovers a mystery,creative
 Compose a haiku about artificial intelligence,creative
@@ -56,7 +56,7 @@ What are the main arguments for and against universal basic income?,summarizatio
 Condense a 10-page legal contract into plain-English bullet points,summarization
 Summarize the history of the internet in under 200 words,summarization
 What were the causes and effects of World War I?,summarization
-Distill the core ideas from "Thinking Fast and Slow",summarization
+"Distill the core ideas from ""Thinking Fast and Slow""",summarization
 Summarize this news article about electric vehicles,summarization
 What are the key differences between Docker and Kubernetes?,summarization
 What is the capital of Japan?,simple-qa
@@ -95,7 +95,374 @@ Analyze this entire codebase and suggest architectural improvements,long-context
 Read this legal document and identify any unfavorable clauses,long-context
 Cross-reference these two research papers and find contradictions,long-context
 Summarize the themes across all 12 chapters of this book,long-context
-Given this 200-page product spec, what features are missing?,long-context
+"Given this 200-page product spec, what features are missing?",long-context
 Process this dataset of 5000 customer reviews and categorize sentiment,long-context
 Review this entire pull request with 30 changed files and assess quality,long-context
 Analyze this 6-month email thread and summarize the key decisions made,long-context
+Fix the failing test in tests/test_auth.py,code
+Add rate limiting to the login endpoint and write tests for it,code
+Refactor the user service to use dependency injection,code
+Why does my React component re-render on every keystroke?,code
+Build a REST API for a todo app with FastAPI and SQLite,code
+Create a CLI tool in Go that renames files by date,code
+Write unit tests for the payment module,code
+"The build fails with ModuleNotFoundError: No module named 'requests', fix it",code
+Implement pagination for the /users endpoint,code
+Convert this callback-based Node code to async/await,code
+Add a dark mode toggle to the settings page,code
+Write a Dockerfile for this Django project,code
+Set up GitHub Actions to run pytest on every push,code
+Optimize this SQL query that scans the whole orders table,code
+Add type hints to utils.py,code
+Scaffold a Next.js app with Tailwind and authentication,code
+Why am I getting a segmentation fault in this C code?,code
+Write a bash script that backs up my Postgres database nightly,code
+Implement an LRU cache in Rust,code
+Debug the memory leak in our websocket server,code
+Migrate this project from unittest to pytest,code
+Add input validation to the signup form,code
+Create a Python script that scrapes product prices into a CSV,code
+Write a Kubernetes deployment manifest for this service,code
+Rename the variable data to payload everywhere in src/,code
+Add logging to the background worker,code
+Make the search endpoint case-insensitive,code
+Write a regex that matches ISO 8601 timestamps,code
+Implement JWT refresh tokens in the Express backend,code
+Fix the TypeError: cannot read properties of undefined (reading 'map'),code
+Build a Chrome extension that blocks distracting sites,code
+Port this Python function to TypeScript,code
+Add a GraphQL schema for products and orders,code
+Write a migration that adds an index on users.email,code
+Implement retry with exponential backoff for the HTTP client,code
+How do I mock datetime.now in pytest?,code
+Create a Flask endpoint that uploads files to S3,code
+Write a binary search tree with insert and delete in Java,code
+Make this function thread-safe,code
+Add caching to the expensive report generation function,code
+Run the linter and fix all the warnings,code
+Explain what this stack trace means and fix the bug,code
+Generate a React hook for debounced input,code
+Implement a websocket chat server in Python,code
+Add OAuth login with Google to the app,code
+"Write a Makefile with build, test and lint targets",code
+Create a Terraform config for an S3 bucket with versioning,code
+Improve the error messages returned by the API,code
+Split this 800-line file into smaller modules,code
+Why does git say my branch has diverged and how do I fix it?,code
+Write a SQL query to find the top 5 customers by revenue,code
+Implement a rate limiter using Redis,code
+Add end-to-end tests with Playwright for the checkout flow,code
+Make the CSV parser handle quoted commas correctly,code
+Build a newsletter signup page with email validation,code
+"What is 17% of 2,450?",math
+Solve for x: 3x + 7 = 22,math
+Find the derivative of sin(x) * e^x,math
+What is the probability of rolling two sixes with two dice?,math
+"Compute the determinant of the matrix [[2, 1], [5, 3]]",math
+Integrate x * ln(x) dx,math
+How many ways can 8 people sit around a round table?,math
+"Find the eigenvalues of [[4, 1], [2, 3]]",math
+What is the sum of the first 100 positive integers?,math
+Convert 0.375 to a fraction,math
+Solve the system: 2x + y = 5 and x - y = 1,math
+"What is the variance of the numbers 2, 4, 4, 4, 5, 5, 7, 9?",math
+"Calculate compound interest on $5,000 at 4% for 10 years",math
+Find the limit of (1 + 1/n)^n as n goes to infinity,math
+Is 221 a prime number?,math
+What is the area of a circle with radius 7 cm?,math
+Factor the polynomial x^2 - 5x + 6,math
+Prove by induction that 1 + 2 + ... + n = n(n+1)/2,math
+What is the expected value of a fair six-sided die?,math
+"Find the slope of the line through (2, 3) and (6, 11)",math
+Compute 2^20,math
+Find the Taylor series of e^x around 0,math
+What is the GCD of 84 and 126?,math
+Solve the differential equation dy/dx = 3y,math
+"Calculate the standard deviation of 10, 12, 23, 23, 16, 23, 21, 16",math
+What is log base 2 of 1024?,math
+Find the volume of a cone with radius 3 and height 5,math
+How many diagonals does a hexagon have?,math
+Simplify (x^3 * x^5) / x^2,math
+"What is the binomial coefficient C(10, 3)?",math
+Find the inverse of the function f(x) = 2x + 3,math
+What is 3/8 plus 5/12?,math
+"Compute the dot product of (1, 2, 3) and (4, 5, 6)",math
+Find the roots of 2x^2 + 3x - 2 = 0,math
+What is the Pythagorean theorem and solve for the hypotenuse with legs 9 and 12,math
+"Calculate the mean, median and mode of 3, 7, 7, 2, 9",math
+"If a train travels 300 km in 2.5 hours, what is its average speed?",math
+Evaluate the definite integral of x^2 from 0 to 3,math
+What is the probability of drawing two aces from a deck without replacement?,math
+Find the sum of the geometric series 1 + 1/2 + 1/4 + ...,math
+Show that the set of rational numbers is countable,math
+What is 15 factorial divided by 13 factorial?,math
+"Find the angle between two vectors (1, 0) and (1, 1)",math
+Convert 101101 from binary to decimal,math
+Solve |2x - 3| < 5,math
+Compute the partial derivative of x^2 y + y^3 with respect to y,math
+What is the modular inverse of 3 mod 11?,math
+Calculate a 95% confidence interval for a mean of 50 with standard error 2,math
+How many subsets does a set with 6 elements have?,math
+Find the area under y = 1/x from 1 to e,math
+What is 12.5% of 640?,math
+Rationalize the denominator of 1 / (sqrt(3) + 1),math
+What is the perimeter of a rectangle 7 by 4?,math
+"Find the nth term of the sequence 3, 7, 11, 15",math
+Write a haiku about autumn rain,creative
+Write a short story about a robot who learns to paint,creative
+Come up with five names for a coffee shop,creative
+Write a limerick about a forgetful wizard,creative
+Draft a toast for my sister's wedding,creative
+Write song lyrics about leaving home,creative
+Create a slogan for an eco-friendly water bottle,creative
+Write a bedtime story about a brave little turtle,creative
+Write a sonnet about the city at night,creative
+Invent a new holiday and describe how people celebrate it,creative
+Write a dialogue between a cat and a dog arguing about naps,creative
+Describe a fantasy kingdom hidden under the sea,creative
+Write a product description for handmade candles,creative
+Write a funny tweet about Mondays,creative
+Create a character backstory for a retired space pirate,creative
+Write the opening paragraph of a mystery novel,creative
+Write a love letter in the style of a pirate,creative
+Brainstorm ten blog post titles about home gardening,creative
+Write a motivational speech for a high school graduation,creative
+Compose a rap verse about learning to code,creative
+Write a fairy tale with a twist ending,creative
+Come up with a tagline for a fitness app,creative
+Write a scene where two old friends meet after twenty years,creative
+Write a children's poem about the moon,creative
+Invent a magic system for my fantasy novel,creative
+Write an Instagram caption for a beach sunset photo,creative
+Create a riddle whose answer is a shadow,creative
+Write a horror micro-story in exactly fifty words,creative
+"Name my new puppy, she is a fluffy golden retriever",creative
+Write a eulogy for my grandfather who loved fishing,creative
+Draft a playful birthday message for a coworker,creative
+Write a free verse poem about loneliness,creative
+Describe a futuristic city in the year 3000,creative
+Write a monologue for a villain who thinks they are the hero,creative
+Create a menu of fictional dishes for a dragon restaurant,creative
+Write a short screenplay scene set in a diner,creative
+Come up with a band name for a jazz-punk group,creative
+Write an ode to coffee,creative
+Write a postcard from a traveler on Mars,creative
+Invent a board game and explain its theme,creative
+Write a story told entirely in text messages,creative
+Write a thank-you note to my child's teacher,creative
+Create an advertising jingle for a pizza place,creative
+Write a myth explaining why the sky is blue,creative
+Rewrite Little Red Riding Hood as a sci-fi story,creative
+Write a poem from the perspective of an old tree,creative
+Give me a creative prompt for a short story contest,creative
+Write a cheerful welcome message for new members of our book club,creative
+Write a ghost story set in a lighthouse,creative
+Compose a haiku sequence about the four seasons,creative
+Write a superhero origin story for a librarian,creative
+Describe the smell of rain to someone who has never experienced it,creative
+Write a farewell message for a colleague who is retiring,creative
+Create a fictional travel brochure for Atlantis,creative
+Write an acrostic poem using the word HOPE,creative
+Summarize this article in three bullet points,summarization
+Give me a TL;DR of the following email thread,summarization
+Condense these meeting notes into action items,summarization
+Summarize the plot of Pride and Prejudice,summarization
+What are the key takeaways from this research abstract?,summarization
+Summarize this customer feedback into the main complaints,summarization
+Write a one-paragraph summary of this blog post,summarization
+Boil this report down to the essentials,summarization
+Summarize the changes in this pull request description,summarization
+Give me a brief overview of this podcast transcript,summarization
+Summarize this legal clause in plain English,summarization
+Extract the main points from this lecture transcript,summarization
+Summarize the reviews for this product,summarization
+Create an executive summary of this quarterly report,summarization
+Summarize this Wikipedia section in two sentences,summarization
+What is the gist of this news story?,summarization
+Summarize the arguments for and against in this debate transcript,summarization
+Turn this long Slack thread into a short status update,summarization
+Summarize the release notes for version 3.0,summarization
+Condense this 2-page memo into a paragraph,summarization
+Give me the highlights of this interview,summarization
+Summarize this chapter for a study guide,summarization
+Summarize what was decided in this design review,summarization
+Write a short abstract for this paper draft,summarization
+Summarize this support ticket conversation,summarization
+Distill these survey responses into themes,summarization
+Summarize this recipe into a quick ingredient list and steps,summarization
+Give a short recap of yesterday's standup notes,summarization
+Summarize this contract's payment terms,summarization
+Summarize the main findings of this study,summarization
+Recap the key events of World War I in a few sentences,summarization
+Summarize this book review,summarization
+Shorten this paragraph without losing meaning,summarization
+Summarize the user stories in this backlog,summarization
+Provide a synopsis of the movie Inception,summarization
+Summarize these release candidate test results,summarization
+Summarize this changelog for non-technical users,summarization
+Give me the key points from this earnings call,summarization
+Make a short summary of this thread for my manager,summarization
+Summarize this policy document for employees,summarization
+Summarize the abstract and conclusion of this paper,summarization
+Condense this email into one sentence,summarization
+Summarize the pros and cons listed in this article,summarization
+Summarize this incident postmortem,summarization
+Give a brief overview of the history of the Roman Empire,summarization
+Summarize the following text,summarization
+Pull out the three most important points from this essay,summarization
+Summarize these customer interview notes,summarization
+Create a bullet-point summary of this webinar,summarization
+Summarize the main ideas of this TED talk,summarization
+Summarize this README for a newcomer,summarization
+Summarize this code review discussion,summarization
+Summarize the terms of service in simple words,summarization
+Give me a quick summary of these lab results notes,summarization
+Summarize this long tweet thread,summarization
+Should I use PostgreSQL or MongoDB for an e-commerce site?,reasoning
+Compare microservices and a monolith for a five-person startup,reasoning
+What are the trade-offs of remote work for a small company?,reasoning
+"If all bloops are razzies and all razzies are lazzies, are all bloops lazzies?",reasoning
+Evaluate the risks of launching our product before the holiday season,reasoning
+Is it better to rent or buy a house in a high-interest-rate market?,reasoning
+Design a system for handling a million notifications per minute,reasoning
+What are the ethical implications of facial recognition in schools?,reasoning
+Analyze why our user signups dropped last month given these numbers,reasoning
+Should we rewrite our legacy app or refactor it incrementally?,reasoning
+Compare the long-term costs of solar panels versus grid electricity,reasoning
+A bat and a ball cost $1.10 and the bat costs $1 more than the ball; how much is the ball?,reasoning
+What strategy should a small bakery use to compete with a chain?,reasoning
+Weigh the pros and cons of learning Rust versus Go in 2026,reasoning
+Critique this business plan for a meal-kit delivery startup,reasoning
+Why might a team's velocity decrease after adding more engineers?,reasoning
+Decide which of these three job offers is best for long-term growth,reasoning
+What are the consequences of raising the minimum wage?,reasoning
+Plan the architecture for a multi-tenant SaaS billing system,reasoning
+"Which is more secure: session cookies or JWTs for a web app, and why?",reasoning
+Assess the risks of storing user passwords with MD5,reasoning
+How should we prioritize these five features for the next release?,reasoning
+Explain the reasoning behind the Monty Hall problem,reasoning
+Is nuclear energy a good solution to climate change? Argue both sides,reasoning
+What could explain a sudden spike in server latency at midnight?,reasoning
+Compare event sourcing with a traditional CRUD design,reasoning
+Should a startup raise venture capital or bootstrap?,reasoning
+Evaluate whether we should move our infrastructure to Kubernetes,reasoning
+Analyze the root cause of why our deploys keep failing on Fridays,reasoning
+What are the strategic risks of depending on a single cloud vendor?,reasoning
+Who is lying if Alice says Bob lies and Bob says Carol lies and Carol says both lie?,reasoning
+Compare REST and gRPC for internal service communication,reasoning
+How would you decide between building or buying a CRM?,reasoning
+What factors should I consider when choosing a database for analytics?,reasoning
+Is it ethical to use AI-generated art commercially?,reasoning
+Analyze the competitive landscape for note-taking apps,reasoning
+What are the second-order effects of a four-day work week?,reasoning
+Should we use a message queue or direct HTTP calls between services?,reasoning
+Reason through whether this argument contains a logical fallacy,reasoning
+Recommend a caching strategy for a read-heavy API and justify it,reasoning
+What would happen to the economy if interest rates doubled?,reasoning
+Compare the trade-offs of static typing and dynamic typing,reasoning
+Evaluate this hiring process and suggest improvements,reasoning
+How should a city decide where to build a new hospital?,reasoning
+Which sorting algorithm is best for nearly sorted data and why?,reasoning
+Is it worth paying off a 4% mortgage early instead of investing?,reasoning
+Analyze the security implications of allowing user-uploaded SVG files,reasoning
+What is the best approach to scaling a database that is running out of write capacity?,reasoning
+Think through the failure modes of a payment retry system,reasoning
+Should our mobile app be native or cross-platform?,reasoning
+Debate whether social media does more harm than good,reasoning
+Compare the incentives in a commission-based versus salaried sales team,reasoning
+How should I structure my study time for a three-month exam preparation?,reasoning
+What are the risks and benefits of open-sourcing our core product?,reasoning
+Determine whether this survey sample is likely biased,reasoning
+Read the entire codebase and explain how authentication works end to end,long-context
+Go through all 40 chapters of this manuscript and list inconsistencies in character names,long-context
+Analyze this 300-page annual report and identify every mention of risk,long-context
+Review the whole repository and find all places where we call the payments API,long-context
+Here is a 2-hour meeting transcript; extract every decision and owner,long-context
+Compare these five full-length contracts clause by clause,long-context
+Read all of these log files and find when the outage started,long-context
+"Across the entire documentation site, find contradictory instructions",long-context
+Go through this full email archive from last year and timeline the project,long-context
+Analyze every file in the src directory and map the dependencies between modules,long-context
+Here is the complete text of the novel; trace the theme of betrayal throughout,long-context
+Review all 200 customer support tickets attached and categorize them,long-context
+Read the full API specification and list every deprecated endpoint,long-context
+Search through this entire 500-page legal discovery document for references to the merger,long-context
+Cross-reference all the chapters of this thesis with its bibliography,long-context
+Process this full year of chat logs and summarize how the team culture changed,long-context
+Audit the whole monorepo for uses of deprecated functions,long-context
+Read this entire research paper collection and compare their methodologies,long-context
+Go through the complete commit history and explain how the architecture evolved,long-context
+Analyze the full transcript of all ten interviews and find common themes,long-context
+Read every page of this employee handbook and list all policies about leave,long-context
+Here are 30 full articles; find which ones contradict each other,long-context
+Review the entire Terraform codebase and find security misconfigurations,long-context
+Read the whole book and write a chapter-by-chapter analysis,long-context
+Go through all the meeting notes from this quarter and track each action item,long-context
+Analyze this complete dataset documentation and all its appendices,long-context
+Read the full medical record history and summarize the treatment timeline,long-context
+"Examine the entire spreadsheet export of 50,000 rows for anomalies",long-context
+Review the complete set of design documents and identify gaps,long-context
+Read all the source files in this project and write architecture documentation,long-context
+Look through every page of this long PDF and pull out the tables,long-context
+Here is the full transcript of the three-day conference; list all speakers and topics,long-context
+Read this whole series of blog posts and track how the author's opinion changed,long-context
+Compare all versions of this policy document across the last five years,long-context
+Analyze the entire test suite and identify which features have no coverage,long-context
+Go through the complete Slack export and find every mention of the launch date,long-context
+Read the full codebase of this library and list all public functions,long-context
+Review the entire wiki and find outdated pages,long-context
+Read the complete terms of service and privacy policy and find conflicts,long-context
+Analyze the full history of this GitHub issue tracker and group recurring bugs,long-context
+Here is a 150-page RFP; extract every requirement into a checklist,long-context
+Read through all these academic journals and synthesize the state of the field,long-context
+Process this whole folder of invoices and reconcile them against the ledger,long-context
+Read the full screenplay and track every scene each character appears in,long-context
+Go through the entire codebase and find all TODO comments with context,long-context
+Analyze all the chapters of this textbook and build a glossary,long-context
+How many continents are there?,simple-qa
+Hi there!,simple-qa
+What is the boiling point of water in Fahrenheit?,simple-qa
+What time zone is London in?,simple-qa
+How many ounces are in a pound?,simple-qa
+What is the chemical symbol for gold?,simple-qa
+"Thanks, that helps!",simple-qa
+What is the tallest mountain in the world?,simple-qa
+What language is spoken in Brazil?,simple-qa
+Who is the author of 1984?,simple-qa
+What does CPU stand for?,simple-qa
+How many days are in a leap year?,simple-qa
+Good morning,simple-qa
+What is the currency of Switzerland?,simple-qa
+How many players are on a soccer team?,simple-qa
+What is the smallest prime number?,simple-qa
+Where is the Eiffel Tower?,simple-qa
+What is an API?,simple-qa
+What's the difference between a virus and bacteria?,simple-qa
+Who was the first person to walk on the moon?,simple-qa
+What does RAM stand for?,simple-qa
+How far is the Moon from Earth?,simple-qa
+What is photosynthesis?,simple-qa
+Can you help me?,simple-qa
+What is the freezing point of water in Celsius?,simple-qa
+Who discovered penicillin?,simple-qa
+What is the population of Canada roughly?,simple-qa
+What is the longest river in Africa?,simple-qa
+How many bones are in the human body?,simple-qa
+What's a synonym for happy?,simple-qa
+What is the square root of 81?,simple-qa
+What does DNA stand for?,simple-qa
+Which ocean is the largest?,simple-qa
+What is the main ingredient in guacamole?,simple-qa
+Who is known as the father of computers?,simple-qa
+What does GDP mean?,simple-qa
+How do you say thank you in Spanish?,simple-qa
+What color do you get by mixing blue and yellow?,simple-qa
+What is the national animal of Australia?,simple-qa
+How many hours are in a week?,simple-qa
+Is a tomato a fruit or a vegetable?,simple-qa
+What is the opposite of ancient?,simple-qa
+Who composed the Moonlight Sonata?,simple-qa
+What is the hardest natural substance?,simple-qa
+What does a noun mean?,simple-qa
+What day comes after Friday?,simple-qa
+What is Python?,simple-qa

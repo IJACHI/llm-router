@@ -1,45 +1,26 @@
-"""Azure OpenAI provider implementation for enterprise deployments."""
-
-from __future__ import annotations
+"""Azure OpenAI provider (deployment name is the model_id)."""
 
 import os
-from ijachi_router.providers.base import Provider, ProviderError
+
+from ijachi_router.providers.base import ProviderError
+from ijachi_router.providers.openai_compat import OpenAICompatibleProvider
 
 
-class AzureOpenAIProvider(Provider):
-    """Azure OpenAI service provider wrapper."""
-
+class AzureOpenAIProvider(OpenAICompatibleProvider):
     name = "azure"
+    label = "Azure OpenAI"
+    reasoning_quirks = True
+    cache_read_multiplier = 0.5  # cached input bills at half price
 
-    def _call(self, prompt: str, **kwargs) -> tuple[str, int, int]:
+    def _client(self, kwargs: dict):
         api_key = os.environ.get("AZURE_OPENAI_API_KEY")
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
         if not api_key or not endpoint:
-            raise ProviderError(
-                "AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables must be set."
-            )
-
-        try:
-            import openai
-        except ImportError as e:
-            raise ProviderError(
-                "openai package is required for Azure OpenAI integration. Install with: pip install openai"
-            ) from e
-
-        try:
-            client = openai.AzureOpenAI(
-                api_key=api_key,
-                azure_endpoint=endpoint,
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
-            )
-            resp = client.chat.completions.create(
-                model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=kwargs.get("max_tokens", 1024),
-            )
-            text = resp.choices[0].message.content or ""
-            in_tokens = resp.usage.prompt_tokens if resp.usage else 0
-            out_tokens = resp.usage.completion_tokens if resp.usage else 0
-            return text, in_tokens, out_tokens
-        except Exception as err:
-            raise ProviderError(f"Azure OpenAI call failed for deployment '{self.model_id}': {err}") from err
+            raise ProviderError("AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables must be set.")
+        openai = self._openai()
+        return openai.AzureOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
+            timeout=self._timeout(kwargs),
+        )

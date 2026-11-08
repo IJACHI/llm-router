@@ -27,9 +27,11 @@ def consensus_route(prompt: str, priority: str = "quality") -> ConsensusResult:
     # First candidate call
     res1 = route(prompt=prompt, priority=priority)
 
-    # Second candidate call with speed/alternative priority bias
-    alt_priority = "cost" if priority == "quality" else "quality"
-    res2 = route(prompt=prompt, priority=alt_priority)
+    # Second, independent opinion from a *different* model at the same priority
+    try:
+        res2 = route(prompt=prompt, priority=priority, exclude_models={res1.model})
+    except Exception:
+        res2 = res1  # only one model available: degrade to a single answer
 
     total_cost = res1.cost_usd + res2.cost_usd
 

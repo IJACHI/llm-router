@@ -8,7 +8,10 @@ and multiline input.
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +67,10 @@ class InteractiveREPL:
         budget_usd: float | None = None,
         pinned_model: str | None = None,
         permission_mode: str = "ask",
+        loop_kwargs: dict[str, Any] | None = None,
     ):
+        # Options (limits, provider policy, local-only) that must survive /clear and /resume.
+        self.loop_kwargs: dict[str, Any] = dict(loop_kwargs or {})
         self.store = store
         self.state = store.state
         self.checkpoints = store.checkpoints
@@ -75,7 +81,7 @@ class InteractiveREPL:
         if pinned_model:
             self.state.pinned_model = pinned_model
 
-        self.loop = AgentSessionLoop(store=self.store, permission_mode=permission_mode)
+        self.loop = self._new_loop(permission_mode)
         self.last_turn_cost: float = 0.0
 
         # Command directory
@@ -105,8 +111,63 @@ class InteractiveREPL:
             "/providers": "Show provider status and circuit breakers",
             "/doctor": "Run full environment and model diagnostics",
             "/update": "Check and pull latest updates from GitHub",
+            "/pr": "Commit, push and open a pull request for this task",
+            "/bashes": "List background shells",
             "/exit": "Leave session and print cost summary",
         }
+
+    def _new_loop(self, permission_mode: str | None = None) -> AgentSessionLoop:
+        old = getattr(self, "loop", None)
+        mode = permission_mode or (old.permissions.mode if old is not None else "manual")
+        loop = AgentSessionLoop(store=self.store, permission_mode=mode, **self.loop_kwargs)
+        # Stream answers to the terminal as they are generated.
+        from ijachi_router.ui.activity import StreamPrinter
+        loop.stream_printer = StreamPrinter()
+        if old is not None:
+            loop.verbose = old.verbose
+            # Keep approvals the user already granted this session.
+            loop.permissions.session_allowed_patterns = old.permissions.session_allowed_patterns
+            loop.permissions.r1_session_approved = old.permissions.r1_session_approved
+            loop.permissions.session_rules = old.permissions.session_rules
+        return loop
+
+    def _expand_file_mentions(self, text: str) -> str:
+        """Attach the contents of @path mentions (inside the workspace) to the message.
+
+        Image mentions (@screenshot.png) are collected in self.pending_images instead.
+        """
+        from ijachi_router.context.images import is_image
+
+        self.pending_images = []
+        attachments = []
+        for m in re.finditer(r"(?:^|\s)@([^\s]+)", text):
+            rel = m.group(1)
+            try:
+                target = self.loop.sandbox.canonicalize_path(rel)
+            except PermissionError:
+                console.print(f"[yellow]@{rel}: outside the workspace, not attached[/yellow]")
+                continue
+            if not target.is_file():
+                continue
+            if is_image(target):
+                self.pending_images.append(target)
+                console.print(f"[dim]🖼  attached image {rel}[/dim]")
+                continue
+            if self.loop.sandbox.is_sensitive_file(target):
+                console.print(f"[yellow]@{rel}: sensitive file, not attached[/yellow]")
+                continue
+            try:
+                content = target.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            if len(content) > 60_000:
+                content = content[:60_000] + "\n... [truncated]"
+            self.state.record_file_read(str(target))
+            attachments.append(f'<file path="{rel}">\n{content}\n</file>')
+            console.print(f"[dim]📎 attached {rel} ({len(content.splitlines())} lines)[/dim]")
+        if not attachments:
+            return text
+        return text + "\n\nAttached files:\n" + "\n".join(attachments)
 
     def _toolbar_fn(self) -> str:
         mode = "pinned" if self.state.pinned_model else "auto"
@@ -114,13 +175,19 @@ class InteractiveREPL:
         return format_status_line(
             mode=mode,
             model=self.state.current_model or self.state.pinned_model or "auto",
-            ctx_percent=min(100, int((self.state.tokens_cached_estimate / 128_000) * 100)),
+            ctx_percent=self._context_percent(),
             last_cost=self.last_turn_cost,
             session_cost=self.state.total_cost_usd,
             budget_usd=self.state.budget_usd,
             routing_mode=self.state.priority or "efficient",
             autonomy_mode=autonomy,
         )
+    def _context_percent(self) -> int:
+        ctx = getattr(self.loop, "last_context", None)
+        if ctx is None or not ctx.model_window:
+            return 0
+        return min(100, int(ctx.total_tokens / ctx.model_window * 100))
+
     def handle_command(self, cmd_line: str) -> bool:
         """Alias for handle_slash_command."""
         return self.handle_slash_command(cmd_line)
@@ -279,7 +346,8 @@ class InteractiveREPL:
                 t.add_row(m, f"${c:.4f}")
             t.add_row("[bold]Total[/bold]", f"[bold green]${self.state.total_cost_usd:.4f}[/bold green]")
             console.print(t)
-            console.print(f"[dim]Tokens: {self.state.total_input_tokens:,} in / {self.state.total_output_tokens:,} out[/dim]\n")
+            console.print(f"[dim]Tokens: {self.state.total_input_tokens:,} in / {self.state.total_output_tokens:,} out · "
+                          f"{self.state.cache_read_tokens:,} read from prompt cache (saved ${self.state.cache_saved_usd:.4f})[/dim]\n")
             return False
 
         if cmd == "/why":
@@ -311,11 +379,17 @@ class InteractiveREPL:
             return False
 
         if cmd == "/compact":
+            from ijachi_router.context.assembler import _CONTEXT_EVENT_TYPES
             from ijachi_router.context.compaction import CompactionEngine
-            events = self.store.read_events()
-            CompactionEngine.compact_events(events, self.state, focus=args)
+            events = [e for e in self.store.read_events() if e.committed and e.type in _CONTEXT_EVENT_TYPES]
+            keep = 6  # the most recent events stay verbatim
+            older = events[:-keep] if len(events) > keep else []
+            if older and self.loop.summarize_history(older, focus=args):
+                console.print(f"[bold green]✓ Summarized {len(older)} earlier events with a model.[/bold green]\n")
+            else:
+                CompactionEngine.compact_events(events, self.state, focus=args)
+                console.print("[bold green]✓ Session context compacted into a structured summary.[/bold green]\n")
             self.store.save_state()
-            console.print("[bold green]✓ Session context compacted into structured summary.[/bold green]\n")
             return False
 
         if cmd == "/clear":
@@ -323,7 +397,8 @@ class InteractiveREPL:
             console.print("[bold green]✓ Session state checkpointed. Starting fresh session...[/bold green]\n")
             self.store = SessionStore(workspace_dir=Path(self.state.workspace_dir))
             self.state = self.store.state
-            self.loop = AgentSessionLoop(store=self.store)
+            self.checkpoints = self.store.checkpoints
+            self.loop = self._new_loop()
             return False
 
         if cmd in ("/resume", "/sessions"):
@@ -338,9 +413,13 @@ class InteractiveREPL:
             console.print(t)
             if args:
                 try:
-                    self.store = SessionStore(session_id=args, workspace_dir=Path.cwd())
+                    if not any(sess["id"] == args for sess in all_s):
+                        raise ValueError("no such session")
+                    self.store.save_state()
+                    self.store = SessionStore(session_id=args, workspace_dir=Path(self.state.workspace_dir))
                     self.state = self.store.state
-                    self.loop = AgentSessionLoop(store=self.store)
+                    self.checkpoints = self.store.checkpoints
+                    self.loop = self._new_loop()
                     console.print(f"[bold green]✓ Resumed session {args}[/bold green]\n")
                 except Exception as e:
                     console.print(f"[bold red]Failed to resume {args}: {e}[/bold red]\n")
@@ -348,6 +427,10 @@ class InteractiveREPL:
 
         if cmd == "/undo":
             ok, msg = self.store.checkpoints.undo_last()
+            if ok:
+                # Refresh hashes so the next Edit is not rejected as a stale read.
+                for path in list(self.state.working_set):
+                    self.state.record_file_read(path)
             color = "green" if ok else "yellow"
             console.print(f"[{color}]{msg}[/{color}]\n")
             return False
@@ -362,12 +445,20 @@ class InteractiveREPL:
             return False
 
         if cmd == "/diff":
-            diff = self.store.checkpoints.diff_from_checkpoint()
+            diff = self.store.checkpoints.session_diff()
             render_diff(diff)
             return False
 
         if cmd == "/memory":
-            mem = load_project_memory()
+            if args == "edit":
+                from ijachi_router.context.memory import find_repo_root
+                mem_path = find_repo_root(Path(self.state.workspace_dir)) / "IJACHI.md"
+                if not mem_path.exists():
+                    init_project_memory(mem_path.parent)
+                editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+                subprocess.call([*shlex.split(editor), str(mem_path)])
+                return False
+            mem = load_project_memory(self.state.workspace_dir)
             if mem:
                 console.print(Panel(mem, title="[bold cyan]📝 Project Memory (IJACHI.md)[/bold cyan]", border_style="cyan"))
             else:
@@ -375,7 +466,7 @@ class InteractiveREPL:
             return False
 
         if cmd == "/init":
-            init_project_memory()
+            init_project_memory(self.state.workspace_dir)
             console.print("[bold green]✓ Created project memory file IJACHI.md[/bold green]\n")
             return False
 
@@ -404,6 +495,19 @@ class InteractiveREPL:
                 ))
             else:
                 console.print("[dim]No thought process recorded yet in this session.[/dim]\n")
+            return False
+
+        if cmd == "/pr":
+            subprocess.call(["ijachi-code", "pr", *shlex.split(args)], cwd=self.state.workspace_dir)
+            return False
+
+        if cmd == "/bashes":
+            from ijachi_router.agent.background import SHELLS
+            jobs = SHELLS.list()
+            if not jobs:
+                console.print("[dim]No background shells.[/dim]\n")
+            for j in jobs:
+                console.print(f"  {j['id']}  {j['status']:<12} {j['age_s']:>5}s  {j['command'][:80]}")
             return False
 
         if cmd == "/update":
@@ -461,6 +565,11 @@ class InteractiveREPL:
             # Check shell command shortcut (!cmd)
             if user_input.startswith("!"):
                 shell_cmd = user_input[1:].strip()
+                # The user typed it, so no approval prompt — but the never-allow policy still applies.
+                safe, reason = self.loop.permissions.analyze_shell_command(shell_cmd)
+                if not safe:
+                    console.print(f"[bold red]Blocked:[/bold red] {reason}\n")
+                    continue
                 res = self.loop.tools.tool_bash({"command": shell_cmd})
                 console.print(Panel(res.output, title=f"[bold yellow]! {shell_cmd}[/bold yellow]"))
                 continue
@@ -468,16 +577,23 @@ class InteractiveREPL:
             # Check note shortcut (#note)
             if user_input.startswith("#"):
                 note = user_input[1:].strip()
+                if not note:
+                    continue
+                from ijachi_router.context.memory import append_project_note
+                mem_path = append_project_note(note, self.state.workspace_dir)
                 self.state.ledger.record_fact(note, category="user_note", turn=self.state.turn_count)
-                console.print(f"[bold green]✓ Recorded note to session ledger:[/bold green] {note}\n")
+                self.store.save_state()
+                console.print(f"[bold green]✓ Added note to {mem_path.name}:[/bold green] {note}\n")
                 continue
 
             # Process prompt
             try:
-                turn_res = self.loop.execute_turn(user_input)
+                message = self._expand_file_mentions(user_input)
+                turn_res = self.loop.execute_turn(message, images=self.pending_images or None)
                 self.last_turn_cost = turn_res.cost_usd
 
-                render_markdown(turn_res.text)
+                if not turn_res.streamed:
+                    render_markdown(turn_res.text)
                 render_turn_footer(
                     model=f"{turn_res.provider_used}/{turn_res.model_used}",
                     in_tokens=turn_res.input_tokens,

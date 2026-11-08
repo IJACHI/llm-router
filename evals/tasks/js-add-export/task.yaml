@@ -1,0 +1,6 @@
+id: js-add-export
+category: code
+difficulty: easy
+prompt: Add a capitalize(str) function to utils.js (first letter upper-case, rest
+  unchanged) and export it. node test.js must pass.
+check: node test.js

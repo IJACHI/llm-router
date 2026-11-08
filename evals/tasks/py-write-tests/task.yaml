@@ -1,0 +1,6 @@
+id: py-write-tests
+category: code
+difficulty: medium
+prompt: 'Write unit tests (unittest) for stats.py in a new file test_stats.py: cover
+  mean, median (odd and even length) and the empty-list error.'
+check: python3 -m unittest discover -q -s . -p 'test_*.py' && python3 check_tests.py

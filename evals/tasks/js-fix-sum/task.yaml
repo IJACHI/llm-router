@@ -1,0 +1,5 @@
+id: js-fix-sum
+category: debugging
+difficulty: easy
+prompt: node test.js fails. Fix the bug in cart.js.
+check: node test.js

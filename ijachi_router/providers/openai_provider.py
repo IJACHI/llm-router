@@ -1,30 +1,12 @@
-import os
+"""openai adapter (OpenAI-compatible endpoint)."""
 
-from ijachi_router.providers.base import Provider, ProviderError
+from ijachi_router.providers.openai_compat import OpenAICompatibleProvider
 
 
-class OpenAIProvider(Provider):
+class OpenAIProvider(OpenAICompatibleProvider):
     name = "openai"
-
-    def _call(self, prompt: str, **kwargs) -> tuple[str, int, int]:
-        try:
-            import openai
-        except ImportError as e:
-            raise ProviderError(
-                "openai package not installed. Run: pip install openai"
-            ) from e
-
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ProviderError("OPENAI_API_KEY not set")
-
-        timeout_sec = float(kwargs.get("timeout", 45.0))
-        client = openai.OpenAI(api_key=api_key, timeout=timeout_sec)
-        resp = client.chat.completions.create(
-            model=self.model_id,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=kwargs.get("max_tokens", 1024),
-            timeout=timeout_sec,
-        )
-        text = resp.choices[0].message.content or ""
-        return text, resp.usage.prompt_tokens, resp.usage.completion_tokens
+    key_envs = ('OPENAI_API_KEY',)
+    key_error = 'OPENAI_API_KEY not set'
+    base_url = None
+    reasoning_quirks = True
+    cache_read_multiplier = 0.5  # cached input bills at half price

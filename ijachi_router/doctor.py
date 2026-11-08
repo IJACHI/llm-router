@@ -85,6 +85,23 @@ def run_doctor_checks() -> dict[str, Any]:
         "detail": f"Width: {term_cols} columns (min 60), Colors: {'NO_COLOR' if os.environ.get('NO_COLOR') else 'supported'}",
     }
 
+    # Agent capabilities
+    import shutil as _shutil
+    from pathlib import Path as _Path
+
+    from ijachi_router.agent.os_sandbox import available as _sbx, describe as _sbx_desc
+    from ijachi_router.settings import load_settings
+
+    results["sandbox"] = {"ok": _sbx() is not None, "detail": _sbx_desc()}
+    results["ripgrep"] = {"ok": True, "detail": "rg found (fast Grep)" if _shutil.which("rg") else "not installed: Grep uses the slower built-in search"}
+    search = "brave" if os.environ.get("BRAVE_API_KEY") else "tavily" if os.environ.get("TAVILY_API_KEY") else "duckduckgo (no key)"
+    results["web search"] = {"ok": True, "detail": search}
+    servers = load_settings(_Path.cwd()).get("mcpServers") or {}
+    results["mcp servers"] = {"ok": True, "detail": ", ".join(servers) if servers else "none configured"}
+    from ijachi_router.routing import outcomes as _oc
+    n = sum(len(v) for v in _oc.summary().values())
+    results["learned routing"] = {"ok": True, "detail": f"{'on' if _oc.enabled() else 'off'} · {n} model/category records"}
+
     return results
 
 

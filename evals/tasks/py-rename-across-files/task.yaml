@@ -1,0 +1,7 @@
+id: py-rename-across-files
+category: code-edit/refactor
+difficulty: medium
+prompt: Rename the function calc_total to compute_total everywhere in this project
+  (definition and all callers).
+check: python3 -m unittest discover -q -s . -p 'test_*.py' && ! grep -rn 'calc_total'
+  --include='*.py' .

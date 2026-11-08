@@ -35,6 +35,7 @@ def extract_session_need(
     category: str,
     confidence: float,
     complexity: float,
+    has_images: bool = False,
 ) -> SessionNeed:
     """Combine prompt classification with session state to build a rich routing Need."""
     lower = prompt.lower()
@@ -45,7 +46,8 @@ def extract_session_need(
         "website", "app", "application", "newsletter", "implement", "pipeline",
     ]
     requires_tools = any(kw in lower for kw in tool_keywords) or bool(state.working_set)
-    requires_vision = any(ext in lower for ext in [".png", ".jpg", ".jpeg", ".webp", ".svg", "screenshot", "image"])
+    # Only an actual attached image requires a vision model (mentioning "image" does not).
+    requires_vision = has_images
 
     files_in_play = list(state.working_set.keys())
     has_prior_failures = state.consecutive_tool_failures > 0

@@ -65,6 +65,8 @@ def test_cli_code_print_mode_text(tmp_path):
         mock_turn.return_value = MagicMock(
             text="Hello world answer",
             completed=True,
+            denied_actions=0,
+            limit_hit=None,
             model_used="claude-3-5-sonnet",
             provider_used="anthropic",
             cost_usd=0.001,
@@ -85,6 +87,8 @@ def test_cli_code_print_mode_json(tmp_path):
         mock_turn.return_value = MagicMock(
             text="JSON test response",
             completed=True,
+            denied_actions=0,
+            limit_hit=None,
             model_used="gpt-4o",
             provider_used="openai",
             cost_usd=0.002,

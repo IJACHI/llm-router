@@ -16,7 +16,7 @@ Document 3.5 (SC-04, SC-06):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ijachi_router.session.events import CanonicalEvent
@@ -31,6 +31,7 @@ class CompactionEngine:
         events: list["CanonicalEvent"],
         state: "SessionState",
         focus: str | None = None,
+        persist: bool = True,
     ) -> str:
         """Create structured summary from prior events while preserving ledger facts verbatim."""
         # 1. Collect files changed
@@ -98,8 +99,40 @@ class CompactionEngine:
                 sections.append(f"- [{step.status}] {step.title}")
 
         summary_text = "\n".join(sections)
-        state.rolling_summary = summary_text
+        if persist:
+            state.rolling_summary = summary_text
         return summary_text
+
+    @staticmethod
+    def render_events(events: list["CanonicalEvent"], max_chars: int = 80_000) -> str:
+        """Plain-text transcript of events for a summarizer model (newest kept if too long)."""
+        lines: list[str] = []
+        for e in events:
+            if e.type == "user_message":
+                lines.append(f"USER: {e.text_content}")
+            elif e.type == "assistant_message":
+                lines.append(f"ASSISTANT: {e.text_content}")
+            elif e.type == "tool_call":
+                tc = e.tool_call
+                lines.append(f"TOOL CALL {tc.get('name')}: {str(tc.get('args', {}))[:600]}")
+            elif e.type == "tool_result":
+                lines.append(f"TOOL RESULT: {e.text_content[:1500]}")
+        text = "\n".join(lines)
+        return text if len(text) <= max_chars else "...(earlier history omitted)...\n" + text[-max_chars:]
+
+
+SUMMARY_SYSTEM_PROMPT = """You compress the history of a coding-agent session so work can continue without it.
+Write a faithful, specific summary in Markdown with exactly these sections:
+## Goal
+## Decisions & reasons
+## Constraints & user preferences
+## Files changed (path: what and why)
+## Commands run & outcomes
+## Errors & how they were fixed
+## Open tasks / next steps
+## Unresolved questions
+Keep file paths, function names, error messages and numbers exact. Do not invent anything.
+Omit a section's content (write "- none") if nothing applies. Be concise: at most ~600 words."""
 
 
 def compact_session_history(

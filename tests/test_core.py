@@ -129,13 +129,13 @@ class TestRouter:
         # local models have 0 cost — should rank first
         assert ranked[0].provider == "local"
 
-    def test_priority_quality_prefers_slow_models(self):
+    def test_priority_quality_prefers_highest_quality_tier(self):
         config = load_config(_MODELS_YAML)
         config.available_providers = {"anthropic", "openai"}
         config.priority = "quality"
         ranked = _rank_models(config, "reasoning", complexity=0.8)
-        # slow-tier models should be at the top
-        assert ranked[0].speed_tier == "slow"
+        # The most capable tier available should be at the top
+        assert ranked[0].quality_tier == max(m.quality_tier for m in ranked)
 
     def test_max_cost_cap_filters_expensive_models(self):
         config = load_config(_MODELS_YAML)
